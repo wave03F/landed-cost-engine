@@ -1,0 +1,23 @@
+databases:
+  - name: landed-cost-db
+    plan: free
+    databaseName: landed_cost
+    user: landed_cost_user
+
+services:
+  - type: web
+    name: landed-cost-engine
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt && python -m app.init_db
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: landed-cost-db
+          property: connectionString
+      - key: APP_ENV
+        value: production
+      - key: API_KEYS
+        sync: false  # Set manually in dashboard for security
+    healthCheckPath: /health

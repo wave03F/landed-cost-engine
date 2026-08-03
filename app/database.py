@@ -11,7 +11,7 @@ class Base(DeclarativeBase):
 def _create_engine():
     settings = get_settings()
     return create_async_engine(
-        settings.database_url, echo=(settings.app_env == "development")
+        settings.async_database_url, echo=(settings.app_env == "development")
     )
 
 

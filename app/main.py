@@ -13,7 +13,7 @@ from app.routers import calculation, hts_codes, tariff_rules, fx_rates, audit
 async def _ensure_database_exists():
     """Create the target database if it doesn't exist (PostgreSQL only)."""
     settings = get_settings()
-    url = settings.database_url
+    url = settings.async_database_url
     if "postgresql" not in url:
         return
 

@@ -20,7 +20,7 @@ from app.seed_data import HTS_CODES, TARIFF_RULES, EXCLUSIONS, FX_RATES
 
 async def init_database(database_url: str | None = None):
     """Create all tables and seed initial data."""
-    url = database_url or get_settings().database_url
+    url = database_url or get_settings().async_database_url
     engine = create_async_engine(url, echo=True)
 
     # Create all tables

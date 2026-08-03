@@ -350,6 +350,65 @@ tests/
 
 ---
 
+## Deployment (Render)
+
+The app is deployed on [Render](https://render.com) free tier.
+
+> **Note:** Free tier services spin down after 15 minutes of inactivity.
+> The first request after idle may take 30-60 seconds (cold start).
+> Subsequent requests respond in <200ms.
+
+**Live Demo:** `https://landed-cost-engine.onrender.com/docs`
+
+<details>
+<summary><strong>Step-by-step Render setup</strong></summary>
+
+### 1. Create PostgreSQL Database
+1. Render Dashboard → **New** → **PostgreSQL**
+2. Name: `landed-cost-db`
+3. Plan: **Free**
+4. Region: Oregon (or closest)
+5. Click **Create Database**
+6. Copy the **Internal Database URL** (starts with `postgresql://`)
+
+### 2. Create Web Service
+1. Render Dashboard → **New** → **Web Service**
+2. Connect your GitHub repo (`landed-cost-engine`)
+3. Configure:
+   - **Name:** `landed-cost-engine`
+   - **Region:** Same as database
+   - **Runtime:** Python
+   - **Build Command:** `pip install -r requirements.txt && python -m app.init_db`
+   - **Start Command:** `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
+   - **Plan:** Free
+
+### 3. Set Environment Variables
+In the Web Service settings → **Environment**:
+
+| Key | Value |
+|-----|-------|
+| `DATABASE_URL` | *(paste Internal Database URL from step 1)* |
+| `APP_ENV` | `production` |
+| `API_KEYS` | `["sk-your-secret-key"]` *(generate a secure random string)* |
+
+### 4. Deploy
+Click **Manual Deploy** → **Deploy latest commit**
+
+### 5. Verify
+- Health check: `https://landed-cost-engine.onrender.com/health`
+- Swagger UI: `https://landed-cost-engine.onrender.com/docs`
+- Test calculation (replace `sk-your-secret-key`):
+```bash
+curl -X POST https://landed-cost-engine.onrender.com/calculate \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: sk-your-secret-key" \
+  -d '{"hts_code":"8483.40","invoice_value_cny":50000,"import_date":"2026-08-01","freight_usd":800,"insurance_usd":50}'
+```
+
+</details>
+
+---
+
 ## What I Learned / Technical Challenges
 
 ### Challenge 1: Modeling Mutual Exclusion Without Hardcoding
