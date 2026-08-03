@@ -1,0 +1,37 @@
+from fastapi import APIRouter, Depends, Query
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.auth import require_api_key
+from app.database import get_db
+from app.schemas.hts import HTSCodeResponse, HTSCodeCreate
+from app.services.hts_service import HTSService
+
+router = APIRouter(dependencies=[Depends(require_api_key)])
+
+
+@router.get("/hts-codes", response_model=list[HTSCodeResponse], summary="ค้นหารหัส HTS")
+async def search_hts_codes(
+    q: str = Query(default="", description="ค้นหาตาม prefix ของรหัส หรือ keyword ในคำอธิบาย"),
+    level: str | None = Query(default=None, description="กรองตามระดับ: chapter, heading, subheading"),
+    db: AsyncSession = Depends(get_db),
+):
+    """ค้นหารหัสพิกัดศุลกากร (HTS) รองรับ prefix matching และ keyword search"""
+    service = HTSService(db)
+    return await service.search(q, level)
+
+
+@router.get("/hts-codes/{code}", response_model=HTSCodeResponse, summary="ดูรายละเอียด HTS code")
+async def get_hts_code(code: str, db: AsyncSession = Depends(get_db)):
+    """ดึงข้อมูลรหัส HTS ที่ระบุ คืน 404 ถ้าไม่พบ"""
+    service = HTSService(db)
+    return await service.get_by_code(code)
+
+
+@router.post("/hts-codes", response_model=HTSCodeResponse, status_code=201, summary="เพิ่มรหัส HTS ใหม่")
+async def create_hts_code(
+    data: HTSCodeCreate,
+    db: AsyncSession = Depends(get_db),
+):
+    """เพิ่มรหัส HTS ใหม่ ระบบกำหนด level อัตโนมัติจากรูปแบบรหัส"""
+    service = HTSService(db)
+    return await service.create(data)

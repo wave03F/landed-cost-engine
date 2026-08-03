@@ -1,0 +1,1371 @@
+openapi: 3.0.3
+info:
+  title: Landed Cost Calculation API
+  description: |
+    API สำหรับคำนวณต้นทุนนำเข้าสินค้า (Landed Cost) จากจีนเข้าสหรัฐอเมริกา
+    รวมภาษีศุลกากรหลายชั้น (MFN, Section 301, Section 232, IEEPA)
+    พร้อมระบบ temporal versioning, exclusion tracking และ audit trail
+
+    ## ภาษีที่รองรับ
+    | ประเภท | คำอธิบาย | อัตราทั่วไป |
+    |--------|----------|------------|
+    | MFN | อัตราฐาน Most Favored Nation | 0-9% |
+    | Section 301 | ภาษีเฉพาะจีน (2018+) | 25% |
+    | Section 232 | ภาษีความมั่นคงแห่งชาติ (เหล็ก/อลูมิเนียม) | 25% |
+    | IEEPA | ภาษีตอบโต้ reciprocal (2025+) | 14.5% |
+
+    ## Stacking Logic
+    - MFN เป็นฐานเสมอ
+    - Section 301 และ IEEPA **เลือกอันที่สูงกว่าอันเดียว**
+    - Section 232 และ IEEPA **เลือกอันที่สูงกว่าอันเดียว**
+  version: 1.0.0
+  contact:
+    name: API Support
+    email: support@landed-cost.dev
+  license:
+    name: MIT
+
+servers:
+  - url: https://landed-cost.fly.dev
+    description: Production
+  - url: https://landed-cost-staging.fly.dev
+    description: Staging
+  - url: http://localhost:8000
+    description: Local Development
+
+tags:
+  - name: Calculation
+    description: คำนวณ Landed Cost สำหรับสินค้านำเข้า
+  - name: HTS Codes
+    description: ค้นหาและจัดการรหัสพิกัดศุลกากร (Harmonized Tariff Schedule)
+  - name: Tariff Rules
+    description: จัดการกฎภาษีนำเข้า (MFN, 301, 232, IEEPA)
+  - name: Exclusions
+    description: จัดการข้อยกเว้นภาษี (Tariff Exclusions)
+  - name: Exchange Rates
+    description: จัดการอัตราแลกเปลี่ยน CNY/USD
+  - name: Audit Trail
+    description: ดูประวัติการคำนวณย้อนหลัง
+  - name: System
+    description: Health check และสถานะระบบ
+
+security:
+  - ApiKeyAuth: []
+  - BearerAuth: []
+
+paths:
+  /calculate:
+    post:
+      tags: [Calculation]
+      summary: คำนวณ Landed Cost สำหรับสินค้า 1 รายการ
+      description: |
+        คำนวณต้นทุนนำเข้ารวม (Landed Cost) โดย:
+        1. ตรวจสอบ HTS code ว่ามีในระบบ
+        2. แปลงสกุลเงิน CNY → USD ด้วยอัตรา ณ วันที่นำเข้า
+        3. คำนวณ Customs Value (CIF = Invoice + Freight + Insurance)
+        4. ดึงกฎภาษีที่มีผลบังคับใช้ ณ วันที่นำเข้า
+        5. ตรวจสอบ Exclusion ที่ยังมีผล
+        6. ใช้ Stacking Logic (ซ้อนกัน vs เลือกอันสูงกว่า)
+        7. คืนผลลัพธ์พร้อม breakdown ทุกชั้นภาษี
+        8. บันทึก Audit Trail
+      operationId: calculateLandedCost
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CalculationRequest'
+            example:
+              hts_code: "8483.40"
+              invoice_value_cny: 50000
+              origin_country: CN
+              import_date: "2026-08-01"
+              freight_usd: 800
+              insurance_usd: 50
+      responses:
+        '200':
+          description: คำนวณสำเร็จ
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/CalculationResponse'
+              example:
+                data:
+                  calculation_id: "f47ac10b-58cc-4372-a567-0e02b2c3d479"
+                  hts_code: "8483.40"
+                  import_date: "2026-08-01"
+                  origin_country: CN
+                  invoice_value_usd: 6945.00
+                  customs_value_usd: 7795.00
+                  total_duty_usd: 2143.63
+                  landed_cost_usd: 9938.63
+                  tariff_breakdown:
+                    - type: MFN
+                      rate: 0.025
+                      amount_usd: 194.88
+                      applied: true
+                      rule_id: "mfn-8483"
+                      reason: null
+                    - type: SECTION_301
+                      rate: 0.25
+                      amount_usd: 1948.75
+                      applied: true
+                      rule_id: "301-8483"
+                      reason: null
+                    - type: IEEPA
+                      rate: 0.145
+                      amount_usd: 0
+                      applied: false
+                      rule_id: "ieepa-84"
+                      reason: excluded_by_stacking_rule
+                  exclusions_applied: []
+                  fx_rate_used:
+                    from_currency: CNY
+                    to_currency: USD
+                    rate: 0.1389
+                    date: "2026-08-01"
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /hts-codes:
+    get:
+      tags: [HTS Codes]
+      summary: ค้นหารหัส HTS
+      description: |
+        ค้นหารหัสพิกัดศุลกากร (HTS) ตาม prefix ของรหัส หรือ keyword ในคำอธิบาย
+        รองรับ filter ตามระดับ: chapter (2 หลัก), heading (4 หลัก), subheading (6+ หลัก)
+      operationId: searchHTSCodes
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/PageSizeParam'
+        - name: q
+          in: query
+          description: ค้นหาตาม prefix ของรหัส (เช่น '8483') หรือ keyword (เช่น 'gear')
+          required: false
+          schema:
+            type: string
+            example: "8483"
+        - name: level
+          in: query
+          description: กรองตามระดับลำดับชั้น
+          required: false
+          schema:
+            type: string
+            enum: [chapter, heading, subheading]
+      responses:
+        '200':
+          description: รายการ HTS codes ที่ตรงตามเงื่อนไข
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/HTSCodeResponse'
+                  meta:
+                    $ref: '#/components/schemas/PaginationMeta'
+              example:
+                data:
+                  - id: "a1b2c3d4-5678-90ab-cdef-111111111111"
+                    code: "8483.40"
+                    level: subheading
+                    description: "Gears and gearing; ball or roller screws; gear boxes and other speed changers"
+                    parent_code: "8483"
+                  - id: "a1b2c3d4-5678-90ab-cdef-222222222222"
+                    code: "8483.50"
+                    level: subheading
+                    description: "Flywheels and pulleys, including pulley blocks"
+                    parent_code: "8483"
+                meta:
+                  page: 1
+                  page_size: 20
+                  total_items: 2
+                  total_pages: 1
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    post:
+      tags: [HTS Codes]
+      summary: เพิ่มรหัส HTS ใหม่
+      description: |
+        เพิ่มรหัส HTS ใหม่เข้าระบบ ระบบจะกำหนด level อัตโนมัติจากรูปแบบรหัส:
+        - 2 หลัก → chapter
+        - 4 หลัก → heading
+        - 6+ หลัก → subheading
+      operationId: createHTSCode
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/HTSCodeCreate'
+            example:
+              code: "8483.90"
+              description: "Toothed wheels, chain sprockets and other transmission elements; parts"
+              parent_code: "8483"
+      responses:
+        '201':
+          description: สร้าง HTS code สำเร็จ
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/HTSCodeResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          description: รหัส HTS นี้มีอยู่ในระบบแล้ว
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+              example:
+                error:
+                  code: CONFLICT
+                  message: "HTS code '8483.90' already exists"
+                  details: null
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /hts-codes/{code}:
+    get:
+      tags: [HTS Codes]
+      summary: ดูรายละเอียด HTS code เฉพาะตัว
+      description: ดึงข้อมูลรหัส HTS ที่ระบุ คืน 404 ถ้าไม่พบ
+      operationId: getHTSCode
+      parameters:
+        - name: code
+          in: path
+          required: true
+          description: รหัส HTS (เช่น '8483.40')
+          schema:
+            type: string
+            example: "8483.40"
+      responses:
+        '200':
+          description: พบข้อมูล HTS code
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/HTSCodeResponse'
+              example:
+                data:
+                  id: "a1b2c3d4-5678-90ab-cdef-111111111111"
+                  code: "8483.40"
+                  level: subheading
+                  description: "Gears and gearing; ball or roller screws; gear boxes and other speed changers"
+                  parent_code: "8483"
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /tariff-rules:
+    get:
+      tags: [Tariff Rules]
+      summary: ดูรายการกฎภาษีทั้งหมด
+      description: |
+        แสดงกฎภาษีทั้งหมดในระบบ สามารถ filter ตามประเภทภาษีหรือรหัส HTS
+        แต่ละกฎมี effective_from/effective_to สำหรับ temporal versioning
+      operationId: listTariffRules
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/PageSizeParam'
+        - name: tariff_type
+          in: query
+          description: กรองตามประเภทภาษี
+          required: false
+          schema:
+            type: string
+            enum: [MFN, SECTION_301, SECTION_232, IEEPA]
+        - name: hts_code
+          in: query
+          description: กรองตาม HTS code pattern (เช่น '8483')
+          required: false
+          schema:
+            type: string
+            example: "8483"
+        - name: sort
+          in: query
+          description: เรียงลำดับ
+          required: false
+          schema:
+            type: string
+            enum: [effective_from_asc, effective_from_desc, rate_asc, rate_desc]
+            default: effective_from_desc
+      responses:
+        '200':
+          description: รายการกฎภาษี
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/TariffRuleResponse'
+                  meta:
+                    $ref: '#/components/schemas/PaginationMeta'
+              example:
+                data:
+                  - id: "301-8483"
+                    tariff_type: SECTION_301
+                    hts_code_pattern: "8483"
+                    origin_country: CN
+                    rate: 0.25
+                    effective_from: "2018-07-06"
+                    effective_to: null
+                    stacks_with: [MFN]
+                    mutually_exclusive_with: [IEEPA]
+                    description: "Section 301 List 1 - 25% tariff on Chinese gears/shafts"
+                    source_reference: "USTR FR Notice 83 FR 28710"
+                meta:
+                  page: 1
+                  page_size: 20
+                  total_items: 1
+                  total_pages: 1
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    post:
+      tags: [Tariff Rules]
+      summary: สร้างกฎภาษีใหม่
+      description: |
+        เพิ่มกฎภาษีใหม่เข้าระบบ กฎจะมีผลเมื่อ:
+        - HTS code ของสินค้าตรงกับ pattern (prefix matching)
+        - ประเทศต้นทางตรงกัน
+        - วันที่นำเข้าอยู่ในช่วง effective_from ถึง effective_to
+
+        **การตั้ง stacking:**
+        - `stacks_with`: ประเภทภาษีที่กฎนี้ซ้อนทับได้ (เช่น ["MFN"])
+        - `mutually_exclusive_with`: ประเภทที่เลือกอันสูงกว่าอันเดียว (เช่น ["IEEPA"])
+      operationId: createTariffRule
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TariffRuleCreate'
+            example:
+              tariff_type: SECTION_301
+              hts_code_pattern: "8483"
+              origin_country: CN
+              rate: 0.25
+              effective_from: "2018-07-06"
+              effective_to: null
+              stacks_with: [MFN]
+              mutually_exclusive_with: [IEEPA]
+              description: "Section 301 List 1 - 25% on Chinese machinery parts"
+              source_reference: "USTR FR Notice 83 FR 28710"
+      responses:
+        '201':
+          description: สร้างกฎภาษีสำเร็จ
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/TariffRuleResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /tariff-rules/{rule_id}:
+    put:
+      tags: [Tariff Rules]
+      summary: แก้ไขกฎภาษีที่มีอยู่
+      description: |
+        อัปเดตกฎภาษี เฉพาะ field ที่ส่งมาเท่านั้นจะถูกแก้ไข
+        ใช้สำหรับ: ปรับอัตรา, ตั้งวันหมดอายุ, เปลี่ยน stacking config
+      operationId: updateTariffRule
+      parameters:
+        - name: rule_id
+          in: path
+          required: true
+          description: UUID ของกฎภาษี
+          schema:
+            type: string
+            format: uuid
+            example: "301-8483"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TariffRuleUpdate'
+            example:
+              rate: 0.30
+              description: "Updated: Section 301 increased to 30%"
+      responses:
+        '200':
+          description: อัปเดตสำเร็จ
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/TariffRuleResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /exclusions:
+    get:
+      tags: [Exclusions]
+      summary: ดูรายการข้อยกเว้นภาษี
+      description: |
+        แสดง exclusion ทั้งหมด (ทั้งที่ยังมีผลและหมดอายุแล้ว)
+        Exclusion คือการยกเว้นภาษีชั่วคราวสำหรับ HTS code เฉพาะ
+        เช่น Semiconductor ICs ได้รับยกเว้น IEEPA ถาวร
+      operationId: listExclusions
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/PageSizeParam'
+        - name: hts_code
+          in: query
+          description: กรองตาม HTS code
+          required: false
+          schema:
+            type: string
+            example: "8542.31"
+      responses:
+        '200':
+          description: รายการ exclusions
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ExclusionResponse'
+                  meta:
+                    $ref: '#/components/schemas/PaginationMeta'
+              example:
+                data:
+                  - id: "excl-8542-31"
+                    hts_code: "8542.31"
+                    tariff_type: IEEPA
+                    origin_country: CN
+                    effective_from: "2025-04-09"
+                    effective_to: null
+                    description: "Semiconductor ICs excluded from IEEPA reciprocal tariff"
+                    source_reference: "Executive Order 14257 Annex II"
+                meta:
+                  page: 1
+                  page_size: 20
+                  total_items: 1
+                  total_pages: 1
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    post:
+      tags: [Exclusions]
+      summary: สร้างข้อยกเว้นภาษีใหม่
+      description: |
+        เพิ่ม exclusion ใหม่ เมื่อ active (วันนำเข้าอยู่ในช่วง effective)
+        ภาษีประเภทที่ระบุจะไม่ถูก apply กับ HTS code นั้น
+        ตั้ง effective_to เป็น null สำหรับ exclusion ถาวร
+      operationId: createExclusion
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExclusionCreate'
+            example:
+              hts_code: "8471.30"
+              tariff_type: SECTION_301
+              origin_country: CN
+              effective_from: "2025-04-11"
+              effective_to: "2025-07-09"
+              description: "Temporary exclusion for laptops from Section 301"
+              source_reference: "USTR 90 FR 15658"
+      responses:
+        '201':
+          description: สร้าง exclusion สำเร็จ
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/ExclusionResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /fx-rates:
+    get:
+      tags: [Exchange Rates]
+      summary: ดูอัตราแลกเปลี่ยนย้อนหลัง
+      description: |
+        แสดงอัตราแลกเปลี่ยนสำหรับคู่สกุลเงินที่ระบุ
+        ระบบใช้อัตรา ณ วันที่นำเข้าสำหรับคำนวณ
+        ถ้าไม่มีอัตราตรงวัน จะ fallback ไปวันที่ใกล้ที่สุดก่อนหน้า
+      operationId: listFXRates
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/PageSizeParam'
+        - name: from_currency
+          in: query
+          description: สกุลเงินต้นทาง (ISO 4217)
+          schema:
+            type: string
+            default: CNY
+            example: CNY
+        - name: to_currency
+          in: query
+          description: สกุลเงินปลายทาง (ISO 4217)
+          schema:
+            type: string
+            default: USD
+            example: USD
+        - name: date_from
+          in: query
+          description: เริ่มต้นช่วงวันที่
+          required: false
+          schema:
+            type: string
+            format: date
+            example: "2026-07-01"
+        - name: date_to
+          in: query
+          description: สิ้นสุดช่วงวันที่
+          required: false
+          schema:
+            type: string
+            format: date
+            example: "2026-08-01"
+      responses:
+        '200':
+          description: รายการอัตราแลกเปลี่ยน
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/FXRateResponse'
+                  meta:
+                    $ref: '#/components/schemas/PaginationMeta'
+              example:
+                data:
+                  - id: "fx-001"
+                    from_currency: CNY
+                    to_currency: USD
+                    rate: 0.1389
+                    date: "2026-08-01"
+                  - id: "fx-002"
+                    from_currency: CNY
+                    to_currency: USD
+                    rate: 0.1388
+                    date: "2026-07-31"
+                meta:
+                  page: 1
+                  page_size: 20
+                  total_items: 2
+                  total_pages: 1
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    post:
+      tags: [Exchange Rates]
+      summary: เพิ่มหรืออัปเดตอัตราแลกเปลี่ยน
+      description: |
+        เพิ่มอัตราแลกเปลี่ยนสำหรับวันที่ระบุ
+        ถ้ามีอัตราของคู่สกุลเงิน+วันที่นี้อยู่แล้ว จะอัปเดตแทน (upsert)
+
+        **รูปแบบ rate:** 1 หน่วย from_currency = rate หน่วย to_currency
+        เช่น CNY→USD rate 0.1389 หมายถึง 1 หยวน = 0.1389 ดอลลาร์
+      operationId: createFXRate
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FXRateCreate'
+            example:
+              from_currency: CNY
+              to_currency: USD
+              rate: 0.1389
+              date: "2026-08-01"
+      responses:
+        '201':
+          description: สร้าง/อัปเดตอัตราแลกเปลี่ยนสำเร็จ
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/FXRateResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /calculations:
+    get:
+      tags: [Audit Trail]
+      summary: ดูประวัติการคำนวณย้อนหลัง
+      description: |
+        แสดงรายการการคำนวณทั้งหมดที่เคยทำ เรียงตามเวลาล่าสุดก่อน
+        ใช้สำหรับ audit — ดูว่าใครคำนวณอะไร เมื่อไร ใช้กฎเวอร์ชันไหน
+      operationId: listCalculations
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/PageSizeParam'
+        - name: hts_code
+          in: query
+          description: กรองตาม HTS code
+          required: false
+          schema:
+            type: string
+            example: "8483.40"
+      responses:
+        '200':
+          description: รายการประวัติการคำนวณ
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/CalculationLogResponse'
+                  meta:
+                    $ref: '#/components/schemas/PaginationMeta'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /calculations/{calculation_id}:
+    get:
+      tags: [Audit Trail]
+      summary: ดูรายละเอียดการคำนวณครั้งที่ระบุ
+      description: |
+        ดึงข้อมูลการคำนวณครั้งเดียวแบบเต็ม ประกอบด้วย:
+        - Input ที่ใช้
+        - กฎภาษีที่ match
+        - Exclusion ที่ใช้
+        - ผลลัพธ์ทั้งหมด
+      operationId: getCalculation
+      parameters:
+        - name: calculation_id
+          in: path
+          required: true
+          description: UUID ของการคำนวณ
+          schema:
+            type: string
+            format: uuid
+            example: "f47ac10b-58cc-4372-a567-0e02b2c3d479"
+      responses:
+        '200':
+          description: รายละเอียดการคำนวณ
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/CalculationLogResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /health:
+    get:
+      tags: [System]
+      summary: ตรวจสอบสถานะระบบ
+      description: คืนสถานะ health ของ service ไม่ต้องใช้ authentication
+      operationId: healthCheck
+      security: []
+      responses:
+        '200':
+          description: ระบบทำงานปกติ
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: healthy
+                  service:
+                    type: string
+                    example: landed-cost-engine
+
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: API Key สำหรับเข้าถึงระบบ ขอได้จากผู้ดูแลระบบ
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT token สำหรับ production (future)
+
+  parameters:
+    PageParam:
+      name: page
+      in: query
+      description: หมายเลขหน้า (เริ่มจาก 1)
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+        example: 1
+    PageSizeParam:
+      name: page_size
+      in: query
+      description: จำนวนรายการต่อหน้า
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+        example: 20
+
+  responses:
+    BadRequest:
+      description: ข้อมูลที่ส่งมาไม่ถูกต้อง
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+          example:
+            error:
+              code: BAD_REQUEST
+              message: "HTS code '9999.99' not found in the system"
+              details: null
+    Unauthorized:
+      description: ไม่มี API Key หรือ API Key ไม่ถูกต้อง
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+          example:
+            error:
+              code: UNAUTHORIZED
+              message: "Missing API key. Provide it via the X-API-Key header."
+              details: null
+    Forbidden:
+      description: ไม่มีสิทธิ์เข้าถึง resource นี้
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+          example:
+            error:
+              code: FORBIDDEN
+              message: "Insufficient permissions"
+              details: null
+    NotFound:
+      description: ไม่พบ resource ที่ร้องขอ
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+          example:
+            error:
+              code: NOT_FOUND
+              message: "Resource not found"
+              details: null
+    ValidationError:
+      description: ข้อมูลไม่ผ่าน validation
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+          example:
+            error:
+              code: VALIDATION_ERROR
+              message: "Request validation failed"
+              details:
+                - field: rate
+                  message: "ensure this value is greater than or equal to 0"
+    InternalServerError:
+      description: เกิดข้อผิดพลาดภายในระบบ
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+          example:
+            error:
+              code: INTERNAL_ERROR
+              message: "An unexpected error occurred"
+              details: null
+
+  schemas:
+    ErrorEnvelope:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              description: รหัส error มาตรฐาน
+              example: BAD_REQUEST
+            message:
+              type: string
+              description: คำอธิบาย error สำหรับ developer
+              example: "HTS code '9999.99' not found"
+            details:
+              description: รายละเอียดเพิ่มเติม (validation errors, etc.)
+              nullable: true
+
+    PaginationMeta:
+      type: object
+      properties:
+        page:
+          type: integer
+          example: 1
+        page_size:
+          type: integer
+          example: 20
+        total_items:
+          type: integer
+          example: 42
+        total_pages:
+          type: integer
+          example: 3
+
+    CalculationRequest:
+      type: object
+      required: [hts_code, import_date]
+      properties:
+        hts_code:
+          type: string
+          description: รหัส HTS ของสินค้า
+          minLength: 2
+          maxLength: 20
+          example: "8483.40"
+        invoice_value_cny:
+          type: number
+          format: double
+          description: มูลค่าสินค้าในสกุลเงิน CNY (ใช้อันใดอันหนึ่งระหว่าง CNY กับ USD)
+          minimum: 0
+          nullable: true
+          example: 50000
+        invoice_value_usd:
+          type: number
+          format: double
+          description: มูลค่าสินค้าในสกุลเงิน USD (ใช้อันใดอันหนึ่งระหว่าง CNY กับ USD)
+          minimum: 0
+          nullable: true
+          example: null
+        origin_country:
+          type: string
+          description: รหัสประเทศต้นทาง (ISO 3166-1 alpha-2)
+          pattern: "^[A-Z]{2}$"
+          default: CN
+          example: CN
+        import_date:
+          type: string
+          format: date
+          description: วันที่นำเข้า (กำหนดว่าจะใช้กฎภาษีเวอร์ชันไหน)
+          example: "2026-08-01"
+        freight_usd:
+          type: number
+          format: double
+          description: ค่าขนส่งในสกุล USD
+          minimum: 0
+          default: 0
+          example: 800
+        insurance_usd:
+          type: number
+          format: double
+          description: ค่าประกันในสกุล USD
+          minimum: 0
+          default: 0
+          example: 50
+
+    CalculationResponse:
+      type: object
+      properties:
+        calculation_id:
+          type: string
+          format: uuid
+          description: UUID สำหรับ audit trail
+        hts_code:
+          type: string
+        import_date:
+          type: string
+          format: date
+        origin_country:
+          type: string
+        invoice_value_usd:
+          type: number
+          format: double
+          description: มูลค่าสินค้าหลังแปลงเป็น USD
+        customs_value_usd:
+          type: number
+          format: double
+          description: มูลค่าศุลกากร (CIF = Invoice + Freight + Insurance)
+        total_duty_usd:
+          type: number
+          format: double
+          description: ภาษีรวมทุกชั้น
+        landed_cost_usd:
+          type: number
+          format: double
+          description: ต้นทุนนำเข้ารวมสุทธิ (Customs Value + Total Duty)
+        tariff_breakdown:
+          type: array
+          description: รายละเอียดภาษีแต่ละชั้น
+          items:
+            $ref: '#/components/schemas/TariffBreakdownItem'
+        exclusions_applied:
+          type: array
+          description: Exclusions ที่ถูกใช้ในการคำนวณนี้
+          items:
+            $ref: '#/components/schemas/ExclusionApplied'
+        fx_rate_used:
+          nullable: true
+          description: อัตราแลกเปลี่ยนที่ใช้ (null ถ้าไม่ต้องแปลงสกุลเงิน)
+          allOf:
+            - $ref: '#/components/schemas/FXRateUsed'
+
+    TariffBreakdownItem:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [MFN, SECTION_301, SECTION_232, IEEPA]
+          description: ประเภทภาษี
+        rate:
+          type: number
+          format: double
+          nullable: true
+          description: อัตราภาษี (เช่น 0.25 = 25%)
+        amount_usd:
+          type: number
+          format: double
+          nullable: true
+          description: จำนวนภาษีที่คำนวณได้ (USD)
+        applied:
+          type: boolean
+          description: ภาษีนี้ถูก apply จริงหรือไม่
+        rule_id:
+          type: string
+          nullable: true
+          description: อ้างอิง ID ของกฎที่ใช้
+        reason:
+          type: string
+          nullable: true
+          description: เหตุผลถ้าไม่ apply (เช่น excluded_by_stacking_rule)
+
+    ExclusionApplied:
+      type: object
+      properties:
+        exclusion_id:
+          type: string
+        tariff_type:
+          type: string
+        description:
+          type: string
+
+    FXRateUsed:
+      type: object
+      properties:
+        from_currency:
+          type: string
+          example: CNY
+        to_currency:
+          type: string
+          example: USD
+        rate:
+          type: number
+          format: double
+          example: 0.1389
+        date:
+          type: string
+          format: date
+          example: "2026-08-01"
+
+    HTSCodeCreate:
+      type: object
+      required: [code, description]
+      properties:
+        code:
+          type: string
+          description: รหัส HTS (เช่น '84', '8483', '8483.40')
+          minLength: 2
+          maxLength: 20
+          example: "8483.90"
+        description:
+          type: string
+          description: คำอธิบายของรหัส HTS
+          minLength: 3
+          maxLength: 500
+          example: "Toothed wheels, chain sprockets and other transmission elements"
+        parent_code:
+          type: string
+          nullable: true
+          description: รหัส HTS ของ parent (สำหรับลำดับชั้น)
+          example: "8483"
+
+    HTSCodeResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        code:
+          type: string
+          example: "8483.40"
+        level:
+          type: string
+          enum: [chapter, heading, subheading]
+          description: ระดับในลำดับชั้น
+        description:
+          type: string
+          example: "Gears and gearing; gear boxes and other speed changers"
+        parent_code:
+          type: string
+          nullable: true
+          example: "8483"
+
+    TariffRuleCreate:
+      type: object
+      required: [tariff_type, hts_code_pattern, rate, effective_from]
+      properties:
+        tariff_type:
+          type: string
+          enum: [MFN, SECTION_301, SECTION_232, IEEPA]
+          description: ประเภทภาษี
+        hts_code_pattern:
+          type: string
+          description: HTS code หรือ prefix (เช่น '84' ครอบคลุมทั้ง chapter)
+          minLength: 2
+          maxLength: 20
+          example: "8483"
+        origin_country:
+          type: string
+          description: รหัสประเทศต้นทาง (ISO 3166-1 alpha-2)
+          pattern: "^[A-Z]{2}$"
+          default: CN
+          example: CN
+        rate:
+          type: number
+          format: double
+          description: อัตราภาษี (0.25 = 25%)
+          minimum: 0
+          maximum: 5.0
+          example: 0.25
+        effective_from:
+          type: string
+          format: date
+          description: วันที่เริ่มมีผล
+          example: "2018-07-06"
+        effective_to:
+          type: string
+          format: date
+          nullable: true
+          description: วันที่หมดอายุ (null = ยังมีผลอยู่)
+          example: null
+        stacks_with:
+          type: array
+          items:
+            type: string
+          description: ประเภทภาษีที่กฎนี้ซ้อนทับได้
+          example: [MFN]
+        mutually_exclusive_with:
+          type: array
+          items:
+            type: string
+          description: ประเภทที่เลือกอันสูงกว่าอันเดียว
+          example: [IEEPA]
+        description:
+          type: string
+          maxLength: 500
+          example: "Section 301 List 1 - 25% on Chinese machinery"
+        source_reference:
+          type: string
+          maxLength: 500
+          description: อ้างอิงกฎหมาย/ประกาศ
+          example: "USTR FR Notice 83 FR 28710"
+
+    TariffRuleUpdate:
+      type: object
+      description: เฉพาะ field ที่ส่งมาจะถูกอัปเดต
+      properties:
+        rate:
+          type: number
+          format: double
+          minimum: 0
+          maximum: 5.0
+          nullable: true
+        effective_to:
+          type: string
+          format: date
+          nullable: true
+        stacks_with:
+          type: array
+          items:
+            type: string
+          nullable: true
+        mutually_exclusive_with:
+          type: array
+          items:
+            type: string
+          nullable: true
+        description:
+          type: string
+          maxLength: 500
+          nullable: true
+        source_reference:
+          type: string
+          maxLength: 500
+          nullable: true
+
+    TariffRuleResponse:
+      type: object
+      properties:
+        id:
+          type: string
+        tariff_type:
+          type: string
+          enum: [MFN, SECTION_301, SECTION_232, IEEPA]
+        hts_code_pattern:
+          type: string
+        origin_country:
+          type: string
+        rate:
+          type: number
+          format: double
+        effective_from:
+          type: string
+          format: date
+        effective_to:
+          type: string
+          format: date
+          nullable: true
+        stacks_with:
+          type: array
+          items:
+            type: string
+        mutually_exclusive_with:
+          type: array
+          items:
+            type: string
+        description:
+          type: string
+        source_reference:
+          type: string
+
+    ExclusionCreate:
+      type: object
+      required: [hts_code, tariff_type, effective_from]
+      properties:
+        hts_code:
+          type: string
+          description: HTS code ที่ได้รับยกเว้น
+          minLength: 2
+          maxLength: 20
+          example: "8542.31"
+        tariff_type:
+          type: string
+          enum: [MFN, SECTION_301, SECTION_232, IEEPA]
+          description: ประเภทภาษีที่ถูกยกเว้น
+          example: IEEPA
+        origin_country:
+          type: string
+          pattern: "^[A-Z]{2}$"
+          default: CN
+          example: CN
+        effective_from:
+          type: string
+          format: date
+          example: "2025-04-09"
+        effective_to:
+          type: string
+          format: date
+          nullable: true
+          description: null = ยกเว้นถาวร
+          example: null
+        description:
+          type: string
+          maxLength: 500
+          example: "Semiconductor ICs excluded from IEEPA"
+        source_reference:
+          type: string
+          maxLength: 500
+          example: "Executive Order 14257 Annex II"
+
+    ExclusionResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        hts_code:
+          type: string
+        tariff_type:
+          type: string
+          enum: [MFN, SECTION_301, SECTION_232, IEEPA]
+        origin_country:
+          type: string
+        effective_from:
+          type: string
+          format: date
+        effective_to:
+          type: string
+          format: date
+          nullable: true
+        description:
+          type: string
+        source_reference:
+          type: string
+
+    FXRateCreate:
+      type: object
+      required: [rate, date]
+      properties:
+        from_currency:
+          type: string
+          description: สกุลเงินต้นทาง (ISO 4217)
+          minLength: 3
+          maxLength: 3
+          default: CNY
+          example: CNY
+        to_currency:
+          type: string
+          description: สกุลเงินปลายทาง (ISO 4217)
+          minLength: 3
+          maxLength: 3
+          default: USD
+          example: USD
+        rate:
+          type: number
+          format: double
+          description: อัตราแลกเปลี่ยน (1 หน่วย from = rate หน่วย to)
+          minimum: 0
+          exclusiveMinimum: true
+          example: 0.1389
+        date:
+          type: string
+          format: date
+          description: วันที่ของอัตรานี้
+          example: "2026-08-01"
+
+    FXRateResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        from_currency:
+          type: string
+          example: CNY
+        to_currency:
+          type: string
+          example: USD
+        rate:
+          type: number
+          format: double
+          example: 0.1389
+        date:
+          type: string
+          format: date
+          example: "2026-08-01"
+
+    CalculationLogResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        hts_code:
+          type: string
+          example: "8483.40"
+        import_date:
+          type: string
+          format: date
+        origin_country:
+          type: string
+          example: CN
+        input_data:
+          type: object
+          description: Input ที่ใช้ในการคำนวณ (snapshot)
+        matched_rules:
+          type: array
+          items:
+            type: string
+          description: รายการ rule IDs ที่ match
+        exclusions_applied:
+          type: array
+          items:
+            type: string
+          description: รายการ exclusion IDs ที่ใช้
+        result_data:
+          type: object
+          description: ผลลัพธ์การคำนวณ (snapshot)
+        calculated_at:
+          type: string
+          format: date-time
+          description: เวลาที่คำนวณ
+          example: "2026-08-01T10:30:00Z"
