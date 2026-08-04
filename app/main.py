@@ -84,6 +84,17 @@ If no keys are configured (development mode), auth is disabled.
     license_info={"name": "MIT"},
 )
 
+# CORS — allow frontend to call this API from browser
+from fastapi.middleware.cors import CORSMiddleware
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # In production, restrict to your frontend domain
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 app.include_router(calculation.router, tags=["Landed Cost Calculation"])
 app.include_router(hts_codes.router, tags=["HTS Code Lookup"])
 app.include_router(tariff_rules.router, tags=["Tariff Rules"])
