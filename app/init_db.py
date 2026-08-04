@@ -35,7 +35,7 @@ async def init_database(database_url: str | None = None):
         async with session.begin():
             from sqlalchemy import select, func
 
-            # Check if HTS codes need seeding
+            # Check if HTS codes need seeding — add any new ones
             result = await session.execute(select(func.count()).select_from(HTSCode))
             hts_count = result.scalar()
             if hts_count == 0:
@@ -48,8 +48,24 @@ async def init_database(database_url: str | None = None):
                     )
                     session.add(hts)
                 print(f"Seeded {len(HTS_CODES)} HTS codes.")
+            elif hts_count < len(HTS_CODES):
+                # Add missing HTS codes
+                existing_codes_result = await session.execute(select(HTSCode.code))
+                existing_codes = {r[0] for r in existing_codes_result.all()}
+                added = 0
+                for data in HTS_CODES:
+                    if data["code"] not in existing_codes:
+                        hts = HTSCode(
+                            code=data["code"],
+                            level=_determine_level(data["code"]),
+                            description=data["description"],
+                            parent_code=data["parent_code"],
+                        )
+                        session.add(hts)
+                        added += 1
+                print(f"Added {added} new HTS codes (total now: {hts_count + added}).")
             else:
-                print(f"HTS codes already exist ({hts_count}). Skipping.")
+                print(f"HTS codes up to date ({hts_count}).")
 
             # Always check tariff rules — add any new ones (by checking count)
             result = await session.execute(select(func.count()).select_from(TariffRule))
