@@ -237,9 +237,11 @@ export default function CalculatorPage() {
         <div className="flex-1 p-8 relative flex flex-col">
           {result ? (
             <>
-              {/* Tariff Stamps Overlay */}
+              {/* Tariff Stamps Overlay — only tariff rules, not fees */}
               <div className="absolute top-4 right-4 pointer-events-none z-10 flex gap-[-8px] mix-blend-multiply">
-                {result.tariff_breakdown.map((item, i) => (
+                {result.tariff_breakdown
+                  .filter((item) => item.type !== "MPF" && item.type !== "HMF")
+                  .map((item, i) => (
                   <TariffStamp
                     key={i}
                     tariffType={item.type}

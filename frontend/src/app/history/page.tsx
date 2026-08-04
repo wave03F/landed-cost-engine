@@ -65,15 +65,14 @@ export default function HistoryPage() {
                     {/* Compact stamps for matched rules */}
                     <div className="flex -space-x-1">
                       {item.matched_rules.slice(0, 3).map((ruleId, i) => {
-                        const type = ruleId.split("-")[0].toUpperCase() as TariffType;
-                        const validType = ["MFN", "SECTION_301", "SECTION_232", "IEEPA"].includes(type)
-                          ? type
+                        const validType: TariffType = ruleId.startsWith("mfn") ? "MFN"
                           : ruleId.includes("301") ? "SECTION_301"
                           : ruleId.includes("232") ? "SECTION_232"
                           : ruleId.includes("ieepa") ? "IEEPA"
+                          : ruleId.includes("ad") || ruleId.includes("cvd") ? "AD_CVD"
                           : "MFN";
                         return (
-                          <TariffStamp key={i} tariffType={validType as TariffType} size="compact" index={i} />
+                          <TariffStamp key={i} tariffType={validType} size="compact" index={i} />
                         );
                       })}
                     </div>
@@ -95,14 +94,16 @@ export default function HistoryPage() {
                     {/* Full stamps in expanded view */}
                     <div className="flex flex-wrap gap-2 mb-4">
                       {item.matched_rules.map((ruleId, i) => {
-                        const validType = ruleId.includes("301") ? "SECTION_301"
+                        const validType: TariffType = ruleId.startsWith("mfn") ? "MFN"
+                          : ruleId.includes("301") ? "SECTION_301"
                           : ruleId.includes("232") ? "SECTION_232"
                           : ruleId.includes("ieepa") ? "IEEPA"
+                          : ruleId.includes("ad") || ruleId.includes("cvd") ? "AD_CVD"
                           : "MFN";
                         return (
                           <TariffStamp
                             key={i}
-                            tariffType={validType as TariffType}
+                            tariffType={validType}
                             size="full"
                             applied={true}
                             index={i}

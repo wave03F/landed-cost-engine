@@ -20,6 +20,9 @@ const COLOR_MAP: Record<TariffType, string> = {
   SECTION_301: "#B8863B",
   SECTION_232: "#8C6D46",
   IEEPA: "#C0392B",
+  AD_CVD: "#6B2D5B",
+  MPF: "#5A6B7A",
+  HMF: "#5A6B7A",
 };
 
 const INACTIVE_COLOR = "#B7BEC7";
@@ -29,6 +32,9 @@ const TEXT_MAP: Record<TariffType, [string, string]> = {
   SECTION_301: ["TRADE REMEDY", "SECTION 301"],
   SECTION_232: ["NATIONAL SECURITY", "SECTION 232"],
   IEEPA: ["RECIPROCAL", "IEEPA"],
+  AD_CVD: ["ANTI-DUMPING", "AD/CVD"],
+  MPF: ["CUSTOMS FEE", "MPF"],
+  HMF: ["HARBOR FEE", "HMF"],
 };
 
 const SHORT_LABEL: Record<TariffType, string> = {
@@ -36,6 +42,9 @@ const SHORT_LABEL: Record<TariffType, string> = {
   SECTION_301: "301",
   SECTION_232: "232",
   IEEPA: "IEEPA",
+  AD_CVD: "AD",
+  MPF: "MPF",
+  HMF: "HMF",
 };
 
 // =============================================================================
@@ -64,6 +73,9 @@ export function TariffStamp({
   index = 0,
   className = "",
 }: TariffStampProps) {
+  // Safety: if tariffType not in our maps, skip rendering
+  if (!COLOR_MAP[tariffType]) return null;
+
   const color = applied ? COLOR_MAP[tariffType] : INACTIVE_COLOR;
   const [line1, line2] = TEXT_MAP[tariffType];
   const line3 = applied && rate != null ? `${(rate * 100).toFixed(1)}%` : "N/A";
