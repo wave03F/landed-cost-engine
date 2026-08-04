@@ -52,7 +52,7 @@ class TestCalculationEndpoint:
 
     @pytest.mark.asyncio
     async def test_pre_301_calculation(self, client: AsyncClient):
-        """Scenario 3: Import before Section 301 — only MFN applies."""
+        """Scenario 3: Import before Section 301 — only MFN + fees apply."""
         response = await client.post("/calculate", json={
             "hts_code": "8483.40",
             "invoice_value_usd": 10000,
@@ -64,11 +64,13 @@ class TestCalculationEndpoint:
         assert response.status_code == 200
         data = response.json()
 
-        # Only MFN should apply
+        # MFN + MPF + HMF should apply (no 301/232/IEEPA before 2018)
         applied = [t for t in data["tariff_breakdown"] if t["applied"]]
-        assert len(applied) == 1
-        assert applied[0]["type"] == "MFN"
-        assert applied[0]["rate"] == 0.025
+        applied_types = {t["type"] for t in applied}
+        assert "MFN" in applied_types
+        assert "MPF" in applied_types
+        assert "HMF" in applied_types
+        assert "SECTION_301" not in applied_types
 
     @pytest.mark.asyncio
     async def test_stacking_301_plus_mfn(self, client: AsyncClient):
@@ -147,7 +149,7 @@ class TestCalculationEndpoint:
 
     @pytest.mark.asyncio
     async def test_zero_duty_free_product(self, client: AsyncClient):
-        """Scenario 8: Product with 0% MFN and no additional tariffs (pre-301 date)."""
+        """Scenario 8: Product with 0% MFN — still pays fees (MPF + HMF)."""
         response = await client.post("/calculate", json={
             "hts_code": "8517.12",
             "invoice_value_usd": 1000,
@@ -159,9 +161,11 @@ class TestCalculationEndpoint:
         assert response.status_code == 200
         data = response.json()
 
-        # MFN is 0% for telecom
+        # MFN is 0% but fees still apply
         assert data["total_duty_usd"] == 0
-        assert data["landed_cost_usd"] == data["customs_value_usd"]
+        assert data["fees"] is not None
+        assert data["fees"]["mpf_usd"] > 0
+        assert data["landed_cost_usd"] > data["customs_value_usd"]
 
     @pytest.mark.asyncio
     async def test_section_232_bearing(self, client: AsyncClient):
@@ -224,7 +228,7 @@ class TestCalculationEndpoint:
 
     @pytest.mark.asyncio
     async def test_high_value_shipment(self, client: AsyncClient):
-        """Scenario 13: High-value shipment — verify math accuracy."""
+        """Scenario 13: High-value shipment — verify duty math accuracy."""
         response = await client.post("/calculate", json={
             "hts_code": "8504.40",
             "invoice_value_usd": 100000,
@@ -242,14 +246,18 @@ class TestCalculationEndpoint:
         # MFN 1.5% + Section 301 25% = 26.5% of customs value
         expected_mfn = round(customs_value * 0.015, 2)
         expected_301 = round(customs_value * 0.25, 2)
-        expected_total = round(expected_mfn + expected_301, 2)
+        expected_total_duty = round(expected_mfn + expected_301, 2)
 
-        assert data["total_duty_usd"] == expected_total
-        assert data["landed_cost_usd"] == round(customs_value + expected_total, 2)
+        assert data["total_duty_usd"] == expected_total_duty
+        # Landed cost = customs + duty + fees (MPF + HMF)
+        assert data["fees"] is not None
+        expected_mpf = round(min(max(customs_value * 0.003464, 31.67), 614.35), 2)
+        assert data["fees"]["mpf_usd"] == expected_mpf
+        assert data["landed_cost_usd"] == round(customs_value + expected_total_duty + data["total_fees_usd"], 2)
 
     @pytest.mark.asyncio
     async def test_tariff_breakdown_has_rule_ids(self, client: AsyncClient):
-        """Scenario 14: Breakdown items should reference rule IDs for audit."""
+        """Scenario 14: Tariff items (not fees) should reference rule IDs for audit."""
         response = await client.post("/calculate", json={
             "hts_code": "8483.40",
             "invoice_value_usd": 5000,
@@ -262,7 +270,8 @@ class TestCalculationEndpoint:
         data = response.json()
 
         for item in data["tariff_breakdown"]:
-            if item["applied"]:
+            # MPF and HMF are fees, not rule-based — no rule_id expected
+            if item["applied"] and item["type"] not in ("MPF", "HMF"):
                 assert item["rule_id"] is not None
 
     @pytest.mark.asyncio

@@ -10,7 +10,7 @@ from app.schemas.tariff import TariffRuleCreate, TariffRuleUpdate, ExclusionCrea
 class TariffService:
     """Service for managing tariff rules and exclusions."""
 
-    VALID_TARIFF_TYPES = {"MFN", "SECTION_301", "SECTION_232", "IEEPA"}
+    VALID_TARIFF_TYPES = {"MFN", "SECTION_301", "SECTION_232", "IEEPA", "AD_CVD"}
 
     def __init__(self, db: AsyncSession):
         self.db = db

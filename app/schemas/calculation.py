@@ -17,14 +17,14 @@ class CalculationRequest(BaseModel):
 
 
 class TariffBreakdownItem(BaseModel):
-    """One layer of tariff in the breakdown."""
+    """One layer of tariff/fee in the breakdown."""
 
-    type: str = Field(..., description="Tariff type (MFN, SECTION_301, SECTION_232, IEEPA)")
+    type: str = Field(..., description="Tariff/fee type (MFN, SECTION_301, SECTION_232, IEEPA, AD_CVD, MPF, HMF)")
     rate: float | None = Field(default=None, description="Applied rate")
-    amount_usd: float | None = Field(default=None, description="Tariff amount in USD")
-    applied: bool = Field(default=True, description="Whether this tariff was actually applied")
-    reason: str | None = Field(default=None, description="Reason if not applied (e.g. exclusion, stacking rule)")
-    rule_id: str | None = Field(default=None, description="Reference to the tariff rule used")
+    amount_usd: float | None = Field(default=None, description="Amount in USD")
+    applied: bool = Field(default=True, description="Whether this was actually applied")
+    reason: str | None = Field(default=None, description="Reason if not applied")
+    rule_id: str | None = Field(default=None, description="Reference to the rule used (null for fees)")
 
 
 class ExclusionApplied(BaseModel):
@@ -42,6 +42,15 @@ class FXRateUsed(BaseModel):
     to_currency: str
     rate: float
     fx_date: date_type = Field(serialization_alias="date")
+    source: str = Field(default="database", description="'database' or 'live_api'")
+
+
+class FeeBreakdown(BaseModel):
+    """Customs fees (MPF, HMF) separate from tariff duties."""
+
+    mpf_usd: float = Field(description="Merchandise Processing Fee (0.3464% of CIF, min $31.67, max $614.35)")
+    hmf_usd: float = Field(description="Harbor Maintenance Fee (0.125% of CIF)")
+    total_fees_usd: float
 
 
 class CalculationResponse(BaseModel):
@@ -51,12 +60,30 @@ class CalculationResponse(BaseModel):
     hts_code: str
     import_date: date_type
     origin_country: str
+
+    # De minimis
+    de_minimis_applied: bool = Field(default=False, description="True if value < $800 (duty-free)")
+
+    # Values
     invoice_value_usd: float = Field(..., description="Invoice value converted to USD")
     customs_value_usd: float = Field(..., description="CIF value (invoice + freight + insurance) in USD")
-    total_duty_usd: float = Field(..., description="Total duty amount across all applicable tariff layers")
-    landed_cost_usd: float = Field(..., description="Final landed cost (customs value + total duty)")
+
+    # Duties
+    total_duty_usd: float = Field(..., description="Total duty from tariff rules")
     tariff_breakdown: list[TariffBreakdownItem] = Field(..., description="Detail of each tariff layer")
+
+    # Fees (MPF + HMF)
+    fees: FeeBreakdown | None = Field(default=None, description="Customs fees (MPF + HMF). Null if de minimis.")
+
+    # FTA
+    fta_applied: str | None = Field(default=None, description="FTA name if applied (e.g. 'USMCA')")
+
+    # Totals
+    total_fees_usd: float = Field(default=0, description="MPF + HMF combined")
+    landed_cost_usd: float = Field(..., description="Final: customs value + duty + fees")
+
+    # Audit
     exclusions_applied: list[ExclusionApplied] = Field(default_factory=list)
-    fx_rate_used: FXRateUsed | None = Field(default=None, description="FX rate used if currency conversion was needed")
+    fx_rate_used: FXRateUsed | None = Field(default=None)
 
     model_config = {"populate_by_name": True}
