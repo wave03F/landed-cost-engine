@@ -187,6 +187,35 @@ TARIFF_RULES = [
         "source_reference": "USITC HTS General Rate Column 1 / ITA Agreement",
     },
 
+    # --- MFN Base Rates for OTHER COUNTRIES (same rates — MFN is non-discriminatory) ---
+    # MFN applies equally to all WTO members (US grants same base rate regardless of origin)
+    # Only additional tariffs (301, 232, IEEPA) are country-specific
+    *[
+        {
+            "tariff_type": "MFN",
+            "hts_code_pattern": pattern,
+            "origin_country": country,
+            "rate": rate,
+            "effective_from": date(2000, 1, 1),
+            "effective_to": None,
+            "stacks_with": [],
+            "mutually_exclusive_with": [],
+            "description": f"MFN base rate for HTS {pattern} - {country} origin",
+            "source_reference": "USITC HTS General Rate Column 1",
+        }
+        for country in ["VN", "MX", "DE", "CA", "JP", "KR", "TW", "IN"]
+        for pattern, rate in [
+            ("8483", 0.025),
+            ("8481", 0.02),
+            ("8482", 0.09),
+            ("8501", 0.03),
+            ("8504", 0.015),
+            ("8507", 0.034),
+            ("8517", 0.0),
+            ("8542", 0.0),
+        ]
+    ],
+
     # --- Section 301 Tariffs (China-specific) ---
     # List 1: 25% on $34B of Chinese goods (effective July 6, 2018)
     {
