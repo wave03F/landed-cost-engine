@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import type { HTSCode, TariffRule } from "@/lib/types";
 import { searchHTSCodes, listTariffRules } from "@/lib/api";
@@ -10,14 +10,34 @@ export default function HTSCodesPage() {
   const router = useRouter();
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<HTSCode[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const [selectedCode, setSelectedCode] = useState<HTSCode | null>(null);
   const [applicableRules, setApplicableRules] = useState<TariffRule[]>([]);
   const [rulesLoading, setRulesLoading] = useState(false);
   const [sheetOpen, setSheetOpen] = useState(false);
 
+  // Load all codes on mount so user sees what's available
+  useEffect(() => {
+    loadAllCodes();
+  }, []);
+
+  const loadAllCodes = async () => {
+    setIsLoading(true);
+    try {
+      const data = await searchHTSCodes("");
+      setResults(data);
+    } catch {
+      setResults([]);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const handleSearch = async () => {
-    if (!query.trim()) return;
+    if (!query.trim()) {
+      loadAllCodes();
+      return;
+    }
     setIsLoading(true);
     try {
       const data = await searchHTSCodes(query);

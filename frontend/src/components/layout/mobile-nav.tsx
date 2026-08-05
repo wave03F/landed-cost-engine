@@ -2,20 +2,22 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useI18n } from "@/lib/i18n";
 
 const NAV_ITEMS = [
-  { href: "/", label: "Calculator", icon: "calculate" },
-  { href: "/hts-codes", label: "HTS Browser", icon: "search_insights" },
-  { href: "/history", label: "History", icon: "history" },
-  { href: "/admin", label: "Settings", icon: "settings" },
+  { href: "/", labelKey: "nav.calculator", icon: "calculate" },
+  { href: "/compare", labelKey: "nav.compare", icon: "compare_arrows" },
+  { href: "/hts-codes", labelKey: "nav.hts_browser", icon: "search_insights" },
+  { href: "/history", labelKey: "nav.history", icon: "history" },
 ] as const;
 
 export function MobileNav() {
   const pathname = usePathname();
+  const { t } = useI18n();
 
   return (
     <nav className="fixed bottom-0 w-full bg-surface-container-low border-t border-outline-variant flex justify-around items-center py-2 z-50 h-[60px] md:hidden">
-      {NAV_ITEMS.map(({ href, label, icon }) => {
+      {NAV_ITEMS.map(({ href, labelKey, icon }) => {
         const isActive = pathname === href;
         return (
           <Link
@@ -34,7 +36,7 @@ export function MobileNav() {
               {icon}
             </span>
             <span className={`font-label-caps text-[10px] uppercase tracking-wider ${isActive ? "font-bold" : ""}`}>
-              {label}
+              {t(labelKey)}
             </span>
           </Link>
         );

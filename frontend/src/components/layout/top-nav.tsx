@@ -1,42 +1,28 @@
 "use client";
 
+import { LanguageSwitcher, useI18n } from "@/lib/i18n";
+
 export function TopNav() {
+  const { t } = useI18n();
+
   return (
-    <header className="h-[72px] flex-shrink-0 flex justify-between items-center w-full px-margin-page border-b border-outline-variant/30 bg-primary z-20">
-      <div className="flex items-center gap-8">
-        <h1 className="font-display-lg text-[24px] text-on-primary uppercase tracking-tighter">
-          Landed Cost Ledger
-        </h1>
-        <nav className="hidden md:flex gap-6">
-          <a href="#" className="text-on-primary-container font-medium hover:text-secondary-fixed transition-colors font-label-caps text-label-caps uppercase">
-            Dashboard
-          </a>
-          <a href="#" className="text-on-primary-container font-medium hover:text-secondary-fixed transition-colors font-label-caps text-label-caps uppercase">
-            Manifests
-          </a>
-          <a href="#" className="text-on-primary-container font-medium hover:text-secondary-fixed transition-colors font-label-caps text-label-caps uppercase">
-            Compliance
-          </a>
-        </nav>
-      </div>
-      <div className="flex items-center gap-4">
-        {/* Search */}
-        <div className="relative text-on-primary-container hidden lg:block">
-          <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2">search</span>
-          <input
-            type="text"
-            placeholder="Search manifest..."
-            className="bg-surface-tint/20 border border-outline-variant/30 text-on-primary pl-10 pr-4 py-2 text-code-sm font-code-sm focus:outline-none focus:border-secondary-fixed transition-colors w-64 rounded-sm"
-          />
-        </div>
-        <button className="text-on-primary hover:text-secondary-fixed transition-colors p-2">
-          <span className="material-symbols-outlined">notifications</span>
+    <header className="h-[56px] flex-shrink-0 flex justify-between items-center w-full px-6 border-b border-outline-variant/20 bg-primary z-20">
+      {/* Left: Brand */}
+      <h1 className="font-display-lg text-[18px] text-on-primary uppercase tracking-tight">
+        {t("app.title")}
+      </h1>
+
+      {/* Right: Actions */}
+      <div className="flex items-center gap-3">
+        <LanguageSwitcher />
+        <div className="w-[1px] h-5 bg-outline-variant/30" />
+        <button className="text-on-primary/70 hover:text-on-primary transition-colors p-1.5" title="Notifications">
+          <span className="material-symbols-outlined text-[20px]">notifications</span>
         </button>
-        <button className="text-on-primary hover:text-secondary-fixed transition-colors p-2">
-          <span className="material-symbols-outlined">help_outline</span>
+        <button className="text-on-primary/70 hover:text-on-primary transition-colors p-1.5" title="Help">
+          <span className="material-symbols-outlined text-[20px]">help_outline</span>
         </button>
-        {/* Avatar placeholder */}
-        <div className="w-8 h-8 bg-surface-tint rounded-full border border-outline-variant/50 ml-2" />
+        <div className="w-7 h-7 bg-surface-tint rounded-full border border-outline-variant/40 ml-1" />
       </div>
     </header>
   );

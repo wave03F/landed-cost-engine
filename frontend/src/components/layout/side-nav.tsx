@@ -2,16 +2,19 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useI18n } from "@/lib/i18n";
 
 const NAV_ITEMS = [
-  { href: "/", label: "Calculator", icon: "calculate", fill: true },
-  { href: "/hts-codes", label: "HTS Browser", icon: "search_insights", fill: false },
-  { href: "/history", label: "History", icon: "history", fill: false },
-  { href: "/admin", label: "Settings", icon: "settings", fill: false },
+  { href: "/", labelKey: "nav.calculator", icon: "calculate", fill: true },
+  { href: "/compare", labelKey: "nav.compare", icon: "compare_arrows", fill: false },
+  { href: "/hts-codes", labelKey: "nav.hts_browser", icon: "search_insights", fill: false },
+  { href: "/history", labelKey: "nav.history", icon: "history", fill: false },
+  { href: "/admin", labelKey: "nav.settings", icon: "settings", fill: false },
 ] as const;
 
 export function SideNav() {
   const pathname = usePathname();
+  const { t } = useI18n();
 
   return (
     <nav className="h-screen w-64 flex-shrink-0 flex flex-col border-r border-outline-variant bg-surface-container-low text-primary relative z-20">
@@ -24,22 +27,22 @@ export function SideNav() {
             </span>
           </div>
           <div>
-            <h2 className="font-display-lg text-[20px] font-bold leading-tight">Duty Manifest</h2>
-            <p className="font-code-sm text-code-sm text-on-surface-variant">Official Ledger v4.1</p>
+            <h2 className="font-display-lg text-[20px] font-bold leading-tight">{t("app.brand")}</h2>
+            <p className="font-code-sm text-code-sm text-on-surface-variant">{t("app.subtitle")}</p>
           </div>
         </div>
         <Link
           href="/"
           className="block w-full bg-brass text-ink-navy font-label-caps text-label-caps py-3 uppercase tracking-widest hover:opacity-90 transition-opacity text-center"
         >
-          New Entry
+          {t("app.new_entry")}
         </Link>
       </div>
 
       {/* Main Navigation */}
       <div className="flex-1 overflow-y-auto py-4">
         <ul className="space-y-1 px-3">
-          {NAV_ITEMS.map(({ href, label, icon, fill }) => {
+          {NAV_ITEMS.map(({ href, labelKey, icon, fill }) => {
             const isActive = pathname === href;
             return (
               <li key={href}>
@@ -57,7 +60,7 @@ export function SideNav() {
                   >
                     {icon}
                   </span>
-                  <span className="font-label-caps text-label-caps uppercase">{label}</span>
+                  <span className="font-label-caps text-label-caps uppercase">{t(labelKey)}</span>
                 </Link>
               </li>
             );
@@ -71,13 +74,13 @@ export function SideNav() {
           <li>
             <a href="#" className="text-on-surface-variant hover:bg-surface-container-high p-3 flex items-center gap-3 transition-all rounded-sm">
               <span className="material-symbols-outlined">contact_support</span>
-              <span className="font-label-caps text-label-caps uppercase">Support</span>
+              <span className="font-label-caps text-label-caps uppercase">{t("nav.support")}</span>
             </a>
           </li>
           <li>
             <a href="#" className="text-on-surface-variant hover:bg-surface-container-high p-3 flex items-center gap-3 transition-all rounded-sm">
               <span className="material-symbols-outlined">logout</span>
-              <span className="font-label-caps text-label-caps uppercase">Sign Out</span>
+              <span className="font-label-caps text-label-caps uppercase">{t("nav.sign_out")}</span>
             </a>
           </li>
         </ul>
