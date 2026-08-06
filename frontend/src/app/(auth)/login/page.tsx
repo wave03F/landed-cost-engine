@@ -4,8 +4,8 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "";
 
 export default function LoginPage() {
   return (
-    <div className="min-h-[70vh] flex items-center justify-center">
-      <div className="bg-manifest-paper border border-steel-blue/30 shadow-[0_10px_30px_rgba(0,0,0,0.5)] rounded-sm overflow-hidden w-full max-w-[400px]">
+    <div className="w-full max-w-[400px]">
+      <div className="bg-manifest-paper border border-steel-blue/30 shadow-[0_10px_30px_rgba(0,0,0,0.5)] rounded-sm overflow-hidden">
         {/* Red accent */}
         <div className="h-2 bg-duty-red w-full" />
 
