@@ -358,7 +358,7 @@ The app is deployed on [Render](https://render.com) free tier.
 > The first request after idle may take 30-60 seconds (cold start).
 > Subsequent requests respond in <200ms.
 
-**Live Demo:** `https://landed-cost-engine.onrender.com/docs`
+**Live Demo:** [`https://landed-cost-engine-seven.vercel.app`](https://landed-cost-engine-seven.vercel.app)
 
 <details>
 <summary><strong>Step-by-step Render setup</strong></summary>
@@ -480,8 +480,8 @@ MIT
 ## Contact
 
 <!-- Update these with your actual links -->
-- **GitHub:** https://github.com/wave03F
-- **Portfolio:** Coming Soon
-- **LinkedIn:** Coming Soon
+- **Live Demo (Frontend):** [https://landed-cost-engine-seven.vercel.app](https://landed-cost-engine-seven.vercel.app)
+- **API Docs (Swagger):** [https://landed-cost-engine.onrender.com/docs](https://landed-cost-engine.onrender.com/docs)
+- **GitHub:** [https://github.com/wave03F/landed-cost-engine](https://github.com/wave03F/landed-cost-engine)
 - **Email:** honasas1101@gmail.com
 - **Location:** Bangkok, Thailand
