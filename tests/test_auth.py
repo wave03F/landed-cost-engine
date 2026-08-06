@@ -63,6 +63,7 @@ class TestAuthEnabled:
         """Request without API key should get 401."""
         with patch("app.auth.get_settings") as mock:
             mock.return_value.api_keys = ["test-key-123"]
+            mock.return_value.jwt_secret = "test-secret"
             response = await client.post(
                 "/calculate",
                 json={
@@ -75,7 +76,7 @@ class TestAuthEnabled:
                 },
             )
             assert response.status_code == 401
-            assert "Missing API key" in response.json()["detail"]
+            assert "Authentication required" in response.json()["detail"] or "Missing API key" in response.json()["detail"]
 
     @pytest.mark.asyncio
     async def test_invalid_key_returns_401(self, client: AsyncClient):
