@@ -480,7 +480,8 @@ MIT
 ## Contact
 
 <!-- Update these with your actual links -->
-- **Portfolio:** [yourportfolio.dev](https://yourportfolio.dev)
-- **LinkedIn:** [linkedin.com/in/yourprofile](https://linkedin.com/in/yourprofile)
-- **Email:** your.email@example.com
-- **Live Demo:** [https://landed-cost.fly.dev/docs](https://landed-cost.fly.dev/docs)
+- **GitHub:** https://github.com/wave03F
+- **Portfolio:** Coming Soon
+- **LinkedIn:** Coming Soon
+- **Email:** honasas1101@gmail.com
+- **Location:** Bangkok, Thailand
