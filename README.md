@@ -2,6 +2,7 @@
 
 **Calculate the true cost of importing goods from China — in under 200ms.**
 
+[![CI](https://github.com/wave03F/landed-cost-engine/actions/workflows/ci.yml/badge.svg)](https://github.com/wave03F/landed-cost-engine/actions/workflows/ci.yml)
 [![Python](https://img.shields.io/badge/Python-3.13-3776AB?logo=python&logoColor=white)](https://python.org)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.141-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169E1?logo=postgresql&logoColor=white)](https://postgresql.org)
