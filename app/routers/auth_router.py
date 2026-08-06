@@ -59,10 +59,10 @@ async def callback_google(
     try:
         service = OAuthService(db)
         result = await service.handle_google_callback(code, redirect_uri)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"OAuth failed: {type(e).__name__}: {str(e)}")
 
-    # Redirect to frontend with tokens in URL fragment (or query params)
+    # Redirect to frontend with tokens
     frontend_url = settings.frontend_url or "http://localhost:3000"
     return RedirectResponse(
         url=f"{frontend_url}/auth/success?access_token={result['access_token']}&refresh_token={result['refresh_token']}"
