@@ -12,12 +12,15 @@
 import type { TariffType } from "@/lib/types";
 import { TariffStamp } from "@/components/ui/TariffStamp";
 
-const TARIFF_TYPES: TariffType[] = ["MFN", "SECTION_301", "SECTION_232", "IEEPA"];
+const TARIFF_TYPES: TariffType[] = ["MFN", "SECTION_301", "SECTION_232", "IEEPA", "AD_CVD", "MPF", "HMF"];
 const SAMPLE_RATES: Record<TariffType, number> = {
   MFN: 0.025,
   SECTION_301: 0.25,
   SECTION_232: 0.25,
   IEEPA: 0.145,
+  AD_CVD: 1.3692,
+  MPF: 0.003464,
+  HMF: 0.00125,
 };
 
 export default function StampDemoPage() {
