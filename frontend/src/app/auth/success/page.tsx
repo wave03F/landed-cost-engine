@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect } from "react";
+import { Suspense, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
-export default function AuthSuccessPage() {
+function AuthSuccessContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -12,16 +12,12 @@ export default function AuthSuccessPage() {
     const refreshToken = searchParams.get("refresh_token");
 
     if (accessToken) {
-      // Store tokens
       localStorage.setItem("access_token", accessToken);
       if (refreshToken) {
         localStorage.setItem("refresh_token", refreshToken);
       }
-
-      // Redirect to calculator
       router.replace("/");
     } else {
-      // No token — something went wrong
       router.replace("/");
     }
   }, [searchParams, router]);
@@ -35,5 +31,13 @@ export default function AuthSuccessPage() {
         </p>
       </div>
     </div>
+  );
+}
+
+export default function AuthSuccessPage() {
+  return (
+    <Suspense fallback={<div className="flex items-center justify-center min-h-[50vh]"><p>Loading...</p></div>}>
+      <AuthSuccessContent />
+    </Suspense>
   );
 }
