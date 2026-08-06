@@ -32,6 +32,13 @@ jobs:
         env:
           DATABASE_URL: "sqlite+aiosqlite:///:memory:"
           APP_ENV: "test"
+          JWT_SECRET: "ci-test-secret-not-for-production"
+          GOOGLE_CLIENT_ID: "test"
+          GOOGLE_CLIENT_SECRET: "test"
+          GITHUB_CLIENT_ID: "test"
+          GITHUB_CLIENT_SECRET: "test"
+          BACKEND_URL: "http://localhost:8000"
+          FRONTEND_URL: "http://localhost:3000"
         run: |
           pytest tests/ --cov=app --cov-report=term-missing --tb=short -q
 
