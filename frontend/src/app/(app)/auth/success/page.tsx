@@ -16,9 +16,9 @@ function AuthSuccessContent() {
       if (refreshToken) {
         localStorage.setItem("refresh_token", refreshToken);
       }
-      router.replace("/");
+      router.replace("/calculator");
     } else {
-      router.replace("/");
+      router.replace("/calculator");
     }
   }, [searchParams, router]);
 

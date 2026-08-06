@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import { useI18n } from "@/lib/i18n";
 
 const NAV_ITEMS = [
-  { href: "/", labelKey: "nav.calculator", icon: "calculate" },
+  { href: "/calculator", labelKey: "nav.calculator", icon: "calculate" },
   { href: "/compare", labelKey: "nav.compare", icon: "compare_arrows" },
   { href: "/hts-codes", labelKey: "nav.hts_browser", icon: "search_insights" },
   { href: "/history", labelKey: "nav.history", icon: "history" },

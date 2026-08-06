@@ -32,7 +32,7 @@ export function SideNav() {
           </div>
         </div>
         <Link
-          href="/"
+          href="/calculator"
           className="block w-full bg-brass text-ink-navy font-label-caps text-label-caps py-3 uppercase tracking-widest hover:opacity-90 transition-opacity text-center"
         >
           {t("app.new_entry")}
