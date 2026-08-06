@@ -1,8 +1,21 @@
 "use client";
 
+import { useAuth } from "@/lib/auth-context";
+import { useRouter } from "next/navigation";
+import { useEffect } from "react";
+
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "";
 
 export default function LoginPage() {
+  const { isLoggedIn, isLoading } = useAuth();
+  const router = useRouter();
+
+  useEffect(() => {
+    if (!isLoading && isLoggedIn) {
+      router.replace("/");
+    }
+  }, [isLoggedIn, isLoading, router]);
+
   return (
     <div className="w-full max-w-[400px]">
       <div className="bg-manifest-paper border border-steel-blue/30 shadow-[0_10px_30px_rgba(0,0,0,0.5)] rounded-sm overflow-hidden">
