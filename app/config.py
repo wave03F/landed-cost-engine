@@ -15,6 +15,25 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     api_keys: list[str] = []  # Comma-separated API keys; empty = auth disabled
 
+    # JWT
+    jwt_secret: str = "change-me-in-production-use-long-random-string"
+
+    # OAuth - Google
+    google_client_id: str = ""
+    google_client_secret: str = ""
+
+    # OAuth - GitHub
+    github_client_id: str = ""
+    github_client_secret: str = ""
+
+    # URLs
+    backend_url: str = "http://localhost:8000"
+    frontend_url: str = "http://localhost:3000"
+
+    # Rate limiting
+    daily_calc_limit_user: int = 50
+    daily_calc_limit_admin: int = 99999
+
     model_config = {"env_file": str(_ENV_FILE), "extra": "ignore"}
 
     @property

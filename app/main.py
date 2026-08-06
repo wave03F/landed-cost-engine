@@ -8,6 +8,8 @@ from sqlalchemy.ext.asyncio import create_async_engine
 from app.database import get_engine, Base
 from app.config import get_settings
 from app.routers import calculation, hts_codes, tariff_rules, fx_rates, audit
+from app.routers.auth_router import router as auth_router
+from app.routers.favorites import router as favorites_router
 
 
 async def _ensure_database_exists():
@@ -95,11 +97,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(auth_router)
 app.include_router(calculation.router, tags=["Landed Cost Calculation"])
 app.include_router(hts_codes.router, tags=["HTS Code Lookup"])
 app.include_router(tariff_rules.router, tags=["Tariff Rules"])
 app.include_router(fx_rates.router, tags=["Exchange Rates"])
 app.include_router(audit.router, tags=["Audit Trail"])
+app.include_router(favorites_router)
 
 
 @app.get("/health", tags=["System"], summary="Health check")

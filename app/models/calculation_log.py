@@ -18,6 +18,7 @@ class CalculationLog(Base):
     __tablename__ = "calculation_logs"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)  # null = anonymous/API key
     hts_code: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
     import_date: Mapped[date] = mapped_column(Date, nullable=False)
     origin_country: Mapped[str] = mapped_column(String(5), nullable=False)

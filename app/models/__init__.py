@@ -3,5 +3,6 @@ from app.models.tariff_rule import TariffRule
 from app.models.exclusion import Exclusion
 from app.models.fx_rate import FXRate
 from app.models.calculation_log import CalculationLog
+from app.models.user import User, UserFavorite
 
-__all__ = ["HTSCode", "TariffRule", "Exclusion", "FXRate", "CalculationLog"]
+__all__ = ["HTSCode", "TariffRule", "Exclusion", "FXRate", "CalculationLog", "User", "UserFavorite"]
