@@ -9,7 +9,7 @@ Flow:
 5. Issue JWT tokens
 """
 
-from datetime import datetime, timezone
+from datetime import datetime
 
 import httpx
 from sqlalchemy import select
@@ -190,7 +190,7 @@ class OAuthService:
 
         if user:
             # Update existing user
-            user.last_login_at = datetime.now(timezone.utc)
+            user.last_login_at = datetime.utcnow()
             user.avatar_url = avatar_url or user.avatar_url
             user.name = name or user.name
         else:
@@ -202,7 +202,7 @@ class OAuthService:
                 oauth_provider=oauth_provider,
                 oauth_id=oauth_id,
                 role="user",
-                last_login_at=datetime.now(timezone.utc),
+                last_login_at=datetime.utcnow(),
             )
             self.db.add(user)
 
