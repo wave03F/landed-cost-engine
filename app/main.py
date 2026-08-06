@@ -45,6 +45,13 @@ async def lifespan(app: FastAPI):
     engine = get_engine()
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        # Add missing columns to existing tables (safe to run multiple times)
+        await conn.execute(text("""
+            DO $$ BEGIN
+                ALTER TABLE calculation_logs ADD COLUMN IF NOT EXISTS user_id VARCHAR(36);
+            EXCEPTION WHEN others THEN NULL;
+            END $$;
+        """))
     yield
     await engine.dispose()
 
