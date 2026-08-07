@@ -58,7 +58,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // Try to refresh the access token
   const tryRefresh = useCallback(async (): Promise<string | null> => {
-    const refreshToken = localStorage.getItem("refresh_token");
+    const refreshToken = localStorage.getItem("refresh_token") || sessionStorage.getItem("refresh_token");
     if (!refreshToken) return null;
 
     try {
@@ -76,13 +76,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Refresh failed — clear everything
     localStorage.removeItem("access_token");
     localStorage.removeItem("refresh_token");
+    sessionStorage.removeItem("access_token");
+    sessionStorage.removeItem("refresh_token");
     return null;
   }, []);
 
-  // On mount: restore session from localStorage
+  // On mount: restore session from localStorage or sessionStorage
   useEffect(() => {
     const restore = async () => {
-      let token = localStorage.getItem("access_token");
+      // Check both storages
+      let token = localStorage.getItem("access_token") || sessionStorage.getItem("access_token");
 
       if (token) {
         const userData = await fetchUser(token);
@@ -96,7 +99,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // Token expired — try refresh
         token = await tryRefresh();
         if (token) {
-          localStorage.setItem("access_token", token);
+          const persist = localStorage.getItem("auth_persist") || "local";
+          const storage = persist === "session" ? sessionStorage : localStorage;
+          storage.setItem("access_token", token);
           const userData = await fetchUser(token);
           if (userData) {
             setAccessToken(token);
@@ -114,8 +119,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [fetchUser, tryRefresh]);
 
   const login = useCallback((newAccessToken: string, newRefreshToken: string) => {
-    localStorage.setItem("access_token", newAccessToken);
-    localStorage.setItem("refresh_token", newRefreshToken);
+    // Check if user chose "remember me" (default: localStorage)
+    const persist = localStorage.getItem("auth_persist") || "local";
+    const storage = persist === "session" ? sessionStorage : localStorage;
+
+    storage.setItem("access_token", newAccessToken);
+    storage.setItem("refresh_token", newRefreshToken);
     setAccessToken(newAccessToken);
 
     // Fetch user in background
@@ -127,6 +136,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const logout = useCallback(() => {
     localStorage.removeItem("access_token");
     localStorage.removeItem("refresh_token");
+    localStorage.removeItem("auth_persist");
+    sessionStorage.removeItem("access_token");
+    sessionStorage.removeItem("refresh_token");
     setAccessToken(null);
     setUser(null);
   }, []);
