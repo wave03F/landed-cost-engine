@@ -5,9 +5,8 @@ from app.auth import require_api_key
 from app.database import get_db
 from app.schemas.calculation import CalculationRequest, CalculationResponse
 from app.services.calculation_service import CalculationService
-from app.middleware.rate_limiter import rate_limit_check
 
-router = APIRouter(dependencies=[Depends(require_api_key), Depends(rate_limit_check)])
+router = APIRouter(dependencies=[Depends(require_api_key)])
 
 
 @router.post("/calculate", response_model=CalculationResponse, summary="คำนวณ Landed Cost")

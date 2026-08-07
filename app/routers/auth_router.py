@@ -52,7 +52,7 @@ async def callback_google(
     request: Request = None,
     db: AsyncSession = Depends(get_db),
 ):
-    """Handle Google OAuth callback — exchange code, create user, return tokens via HTML form POST."""
+    """Handle Google OAuth callback — exchange code, create user, return tokens."""
     settings = get_settings()
     redirect_uri = f"{settings.backend_url}/auth/callback/google"
 
@@ -62,11 +62,10 @@ async def callback_google(
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"OAuth failed: {type(e).__name__}: {str(e)}")
 
-    # Redirect with tokens in URL fragment (#)
-    # Fragment is never sent to server, not logged, not in browser history entries
+    # Redirect to frontend with tokens
     frontend_url = settings.frontend_url or "http://localhost:3000"
     return RedirectResponse(
-        url=f"{frontend_url}/auth/success#access_token={result['access_token']}&refresh_token={result['refresh_token']}"
+        url=f"{frontend_url}/auth/success?access_token={result['access_token']}&refresh_token={result['refresh_token']}"
     )
 
 
@@ -91,28 +90,20 @@ async def callback_github(
     request: Request = None,
     db: AsyncSession = Depends(get_db),
 ):
-    """Handle GitHub OAuth callback — exchange code, create user, return tokens via secure form POST."""
+    """Handle GitHub OAuth callback — exchange code, create user, return tokens."""
     settings = get_settings()
     redirect_uri = f"{settings.backend_url}/auth/callback/github"
 
     try:
         service = OAuthService(db)
         result = await service.handle_github_callback(code, redirect_uri)
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"OAuth failed: {type(e).__name__}: {str(e)}")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
     frontend_url = settings.frontend_url or "http://localhost:3000"
-    html = f"""
-    <html><body>
-    <form id="f" method="POST" action="{frontend_url}/auth/callback">
-        <input type="hidden" name="access_token" value="{result['access_token']}" />
-        <input type="hidden" name="refresh_token" value="{result['refresh_token']}" />
-    </form>
-    <script>document.getElementById('f').submit();</script>
-    </body></html>
-    """
-    from fastapi.responses import HTMLResponse
-    return HTMLResponse(content=html)
+    return RedirectResponse(
+        url=f"{frontend_url}/auth/success?access_token={result['access_token']}&refresh_token={result['refresh_token']}"
+    )
 
 
 # =============================================================================
