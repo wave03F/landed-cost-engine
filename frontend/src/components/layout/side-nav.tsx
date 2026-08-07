@@ -1,8 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useI18n } from "@/lib/i18n";
+import { useAuth } from "@/lib/auth-context";
 
 const NAV_ITEMS = [
   { href: "/calculator", labelKey: "nav.calculator", icon: "calculate", fill: true },
@@ -14,7 +15,14 @@ const NAV_ITEMS = [
 
 export function SideNav() {
   const pathname = usePathname();
+  const router = useRouter();
   const { t } = useI18n();
+  const { logout } = useAuth();
+
+  const handleSignOut = () => {
+    logout();
+    router.push("/login");
+  };
 
   return (
     <nav className="h-screen w-64 flex-shrink-0 flex flex-col border-r border-outline-variant bg-surface-container-low text-primary relative z-20">
@@ -72,16 +80,22 @@ export function SideNav() {
       <div className="p-4 border-t border-outline-variant">
         <ul className="space-y-1">
           <li>
-            <a href="#" className="text-on-surface-variant hover:bg-surface-container-high p-3 flex items-center gap-3 transition-all rounded-sm">
+            <a
+              href="mailto:honasas1101@gmail.com"
+              className="text-on-surface-variant hover:bg-surface-container-high p-3 flex items-center gap-3 transition-all rounded-sm"
+            >
               <span className="material-symbols-outlined">contact_support</span>
               <span className="font-label-caps text-label-caps uppercase">{t("nav.support")}</span>
             </a>
           </li>
           <li>
-            <a href="#" className="text-on-surface-variant hover:bg-surface-container-high p-3 flex items-center gap-3 transition-all rounded-sm">
+            <button
+              onClick={handleSignOut}
+              className="w-full text-on-surface-variant hover:bg-surface-container-high p-3 flex items-center gap-3 transition-all rounded-sm text-left"
+            >
               <span className="material-symbols-outlined">logout</span>
               <span className="font-label-caps text-label-caps uppercase">{t("nav.sign_out")}</span>
-            </a>
+            </button>
           </li>
         </ul>
       </div>
