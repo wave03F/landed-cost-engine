@@ -2,11 +2,11 @@
  * POST /auth/callback
  *
  * Receives tokens via form POST from backend OAuth callback.
- * Stores them in a redirect response with tokens in a short-lived URL fragment.
+ * Returns HTML that stores tokens via JS then redirects to /auth/success.
  *
- * This is secure because:
- * - Tokens are sent via POST body (not visible in URL/logs)
- * - We redirect to /auth/success#token=... (fragment is not sent to server)
+ * Secure because:
+ * - Tokens arrive via POST body (not in URL/logs/history)
+ * - HTML page stores them in localStorage then redirects (tokens never in URL)
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -20,10 +20,22 @@ export async function POST(request: NextRequest) {
     return NextResponse.redirect(new URL("/login", request.url));
   }
 
-  // Redirect to success page with tokens in URL fragment (not query params)
-  // Fragment (#) is never sent to server, never logged, never in history entries
-  const successUrl = new URL("/auth/success", request.url);
-  successUrl.hash = `access_token=${accessToken}&refresh_token=${refreshToken}`;
+  // Return HTML that stores tokens in localStorage then redirects
+  const html = `<!DOCTYPE html>
+<html><head><title>Logging in...</title></head>
+<body>
+<script>
+  var persist = localStorage.getItem("auth_persist") || "local";
+  var storage = persist === "session" ? sessionStorage : localStorage;
+  storage.setItem("access_token", ${JSON.stringify(accessToken)});
+  storage.setItem("refresh_token", ${JSON.stringify(refreshToken)});
+  window.location.replace("/auth/success");
+</script>
+<noscript><a href="/login">Click here if not redirected</a></noscript>
+</body></html>`;
 
-  return NextResponse.redirect(successUrl, { status: 303 });
+  return new NextResponse(html, {
+    status: 200,
+    headers: { "Content-Type": "text/html" },
+  });
 }

@@ -1,24 +1,20 @@
 "use client";
 
-import { Suspense, useEffect } from "react";
+import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 
-function AuthSuccessContent() {
+export default function AuthSuccessPage() {
   const router = useRouter();
-  const { login } = useAuth();
+  const { login, isLoggedIn } = useAuth();
 
   useEffect(() => {
-    // Read tokens from URL fragment (hash) — secure, never sent to server
-    const hash = window.location.hash.substring(1); // remove #
-    const params = new URLSearchParams(hash);
-    const accessToken = params.get("access_token");
-    const refreshToken = params.get("refresh_token");
+    // Tokens were already stored in localStorage by /auth/callback route handler
+    const accessToken = localStorage.getItem("access_token") || sessionStorage.getItem("access_token");
+    const refreshToken = localStorage.getItem("refresh_token") || sessionStorage.getItem("refresh_token");
 
     if (accessToken && refreshToken) {
       login(accessToken, refreshToken);
-      // Clean the URL (remove fragment)
-      window.history.replaceState(null, "", "/auth/success");
       router.replace("/calculator");
     } else {
       router.replace("/login");
@@ -34,13 +30,5 @@ function AuthSuccessContent() {
         </p>
       </div>
     </div>
-  );
-}
-
-export default function AuthSuccessPage() {
-  return (
-    <Suspense fallback={<div className="flex items-center justify-center min-h-[50vh]"><p>Loading...</p></div>}>
-      <AuthSuccessContent />
-    </Suspense>
   );
 }

@@ -62,8 +62,7 @@ async def callback_google(
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"OAuth failed: {type(e).__name__}: {str(e)}")
 
-    # Instead of putting tokens in URL (insecure), use an auto-submitting HTML form
-    # This POSTs tokens to the frontend without exposing them in browser history/logs
+    # POST tokens to frontend /auth/callback (secure: tokens in POST body, not URL)
     frontend_url = settings.frontend_url or "http://localhost:3000"
     html = f"""
     <html><body>
