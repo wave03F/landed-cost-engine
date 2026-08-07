@@ -62,19 +62,12 @@ async def callback_google(
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"OAuth failed: {type(e).__name__}: {str(e)}")
 
-    # POST tokens to frontend /auth/callback (secure: tokens in POST body, not URL)
+    # Redirect with tokens in URL fragment (#)
+    # Fragment is never sent to server, not logged, not in browser history entries
     frontend_url = settings.frontend_url or "http://localhost:3000"
-    html = f"""
-    <html><body>
-    <form id="f" method="POST" action="{frontend_url}/auth/callback">
-        <input type="hidden" name="access_token" value="{result['access_token']}" />
-        <input type="hidden" name="refresh_token" value="{result['refresh_token']}" />
-    </form>
-    <script>document.getElementById('f').submit();</script>
-    </body></html>
-    """
-    from fastapi.responses import HTMLResponse
-    return HTMLResponse(content=html)
+    return RedirectResponse(
+        url=f"{frontend_url}/auth/success#access_token={result['access_token']}&refresh_token={result['refresh_token']}"
+    )
 
 
 # =============================================================================

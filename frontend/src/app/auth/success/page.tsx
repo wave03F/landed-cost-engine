@@ -6,19 +6,33 @@ import { useAuth } from "@/lib/auth-context";
 
 export default function AuthSuccessPage() {
   const router = useRouter();
-  const { login, isLoggedIn } = useAuth();
+  const { login } = useAuth();
 
   useEffect(() => {
-    // Tokens were already stored in localStorage by /auth/callback route handler
-    const accessToken = localStorage.getItem("access_token") || sessionStorage.getItem("access_token");
-    const refreshToken = localStorage.getItem("refresh_token") || sessionStorage.getItem("refresh_token");
+    // Try hash fragment first (from OAuth redirect)
+    const hash = window.location.hash.substring(1);
+    if (hash) {
+      const params = new URLSearchParams(hash);
+      const accessToken = params.get("access_token");
+      const refreshToken = params.get("refresh_token");
 
-    if (accessToken && refreshToken) {
-      login(accessToken, refreshToken);
-      router.replace("/calculator");
-    } else {
-      router.replace("/login");
+      if (accessToken && refreshToken) {
+        login(accessToken, refreshToken);
+        window.history.replaceState(null, "", "/auth/success");
+        router.replace("/calculator");
+        return;
+      }
     }
+
+    // Fallback: check localStorage (tokens may already be stored by /auth/callback)
+    const storedToken = localStorage.getItem("access_token") || sessionStorage.getItem("access_token");
+    if (storedToken) {
+      router.replace("/calculator");
+      return;
+    }
+
+    // Nothing found — back to login
+    router.replace("/login");
   }, [router, login]);
 
   return (
