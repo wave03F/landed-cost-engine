@@ -18,7 +18,7 @@ export function TopNav() {
   };
 
   return (
-    <header className="h-[56px] flex-shrink-0 flex justify-between items-center w-full px-6 border-b border-outline-variant/20 bg-primary z-20 relative">
+    <header className="h-[56px] flex-shrink-0 flex justify-between items-center w-full px-6 border-b border-outline-variant/20 bg-primary z-20">
       {/* Left: Brand */}
       <h1 className="font-display-lg text-[18px] text-on-primary uppercase tracking-tight">
         {t("app.title")}
