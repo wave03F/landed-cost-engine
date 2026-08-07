@@ -129,13 +129,6 @@ export function TopNav() {
         </div>
       </div>
 
-      {/* Click outside to close menus */}
-      {(showMenu || showHelp) && (
-        <div
-          className="fixed inset-0 z-30"
-          onClick={() => { setShowMenu(false); setShowHelp(false); }}
-        />
-      )}
     </header>
   );
 }
