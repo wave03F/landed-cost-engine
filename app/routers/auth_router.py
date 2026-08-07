@@ -52,7 +52,7 @@ async def callback_google(
     request: Request = None,
     db: AsyncSession = Depends(get_db),
 ):
-    """Handle Google OAuth callback — exchange code, create user, return tokens."""
+    """Handle Google OAuth callback — exchange code, create user, return tokens via HTML form POST."""
     settings = get_settings()
     redirect_uri = f"{settings.backend_url}/auth/callback/google"
 
@@ -62,11 +62,20 @@ async def callback_google(
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"OAuth failed: {type(e).__name__}: {str(e)}")
 
-    # Redirect to frontend with tokens
+    # Instead of putting tokens in URL (insecure), use an auto-submitting HTML form
+    # This POSTs tokens to the frontend without exposing them in browser history/logs
     frontend_url = settings.frontend_url or "http://localhost:3000"
-    return RedirectResponse(
-        url=f"{frontend_url}/auth/success?access_token={result['access_token']}&refresh_token={result['refresh_token']}"
-    )
+    html = f"""
+    <html><body>
+    <form id="f" method="POST" action="{frontend_url}/auth/callback">
+        <input type="hidden" name="access_token" value="{result['access_token']}" />
+        <input type="hidden" name="refresh_token" value="{result['refresh_token']}" />
+    </form>
+    <script>document.getElementById('f').submit();</script>
+    </body></html>
+    """
+    from fastapi.responses import HTMLResponse
+    return HTMLResponse(content=html)
 
 
 # =============================================================================
@@ -90,20 +99,28 @@ async def callback_github(
     request: Request = None,
     db: AsyncSession = Depends(get_db),
 ):
-    """Handle GitHub OAuth callback — exchange code, create user, return tokens."""
+    """Handle GitHub OAuth callback — exchange code, create user, return tokens via secure form POST."""
     settings = get_settings()
     redirect_uri = f"{settings.backend_url}/auth/callback/github"
 
     try:
         service = OAuthService(db)
         result = await service.handle_github_callback(code, redirect_uri)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"OAuth failed: {type(e).__name__}: {str(e)}")
 
     frontend_url = settings.frontend_url or "http://localhost:3000"
-    return RedirectResponse(
-        url=f"{frontend_url}/auth/success?access_token={result['access_token']}&refresh_token={result['refresh_token']}"
-    )
+    html = f"""
+    <html><body>
+    <form id="f" method="POST" action="{frontend_url}/auth/callback">
+        <input type="hidden" name="access_token" value="{result['access_token']}" />
+        <input type="hidden" name="refresh_token" value="{result['refresh_token']}" />
+    </form>
+    <script>document.getElementById('f').submit();</script>
+    </body></html>
+    """
+    from fastapi.responses import HTMLResponse
+    return HTMLResponse(content=html)
 
 
 # =============================================================================

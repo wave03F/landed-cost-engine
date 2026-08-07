@@ -1,26 +1,29 @@
 "use client";
 
 import { Suspense, useEffect } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 
 function AuthSuccessContent() {
   const router = useRouter();
-  const searchParams = useSearchParams();
   const { login } = useAuth();
 
   useEffect(() => {
-    const accessToken = searchParams.get("access_token");
-    const refreshToken = searchParams.get("refresh_token");
+    // Read tokens from URL fragment (hash) — secure, never sent to server
+    const hash = window.location.hash.substring(1); // remove #
+    const params = new URLSearchParams(hash);
+    const accessToken = params.get("access_token");
+    const refreshToken = params.get("refresh_token");
 
     if (accessToken && refreshToken) {
-      // Store tokens + fetch user (remember me via localStorage)
       login(accessToken, refreshToken);
-      router.replace("/");
+      // Clean the URL (remove fragment)
+      window.history.replaceState(null, "", "/auth/success");
+      router.replace("/calculator");
     } else {
       router.replace("/login");
     }
-  }, [searchParams, router, login]);
+  }, [router, login]);
 
   return (
     <div className="flex items-center justify-center min-h-[50vh]">

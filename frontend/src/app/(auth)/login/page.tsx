@@ -98,6 +98,11 @@ export default function LoginPage() {
           <p className="text-[11px] text-on-surface-variant italic">
             No password needed. We only access your name and email.
           </p>
+          <div className="mt-2 flex justify-center gap-3 text-[10px]">
+            <a href="/terms" className="text-brass hover:underline">Terms of Service</a>
+            <span className="text-on-surface-variant">•</span>
+            <a href="/privacy" className="text-brass hover:underline">Privacy Policy</a>
+          </div>
         </div>
       </div>
     </div>
