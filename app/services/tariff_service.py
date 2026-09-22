@@ -4,7 +4,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.tariff_rule import TariffRule
 from app.models.exclusion import Exclusion
-from app.schemas.tariff import TariffRuleCreate, TariffRuleUpdate, ExclusionCreate
+from app.schemas.tariff import (
+    TariffRuleCreate,
+    TariffRuleUpdate,
+    ExclusionCreate,
+    ExclusionUpdate,
+)
 
 
 class TariffService:
@@ -70,6 +75,17 @@ class TariffService:
         await self.db.flush()
         return rule
 
+    async def delete_rule(self, rule_id: str) -> None:
+        """Delete a tariff rule. Raises 404 if not found.
+        Past calculation logs are unaffected (they store the rule ids used at calc time)."""
+        stmt = select(TariffRule).where(TariffRule.id == rule_id)
+        result = await self.db.execute(stmt)
+        rule = result.scalar_one_or_none()
+        if not rule:
+            raise HTTPException(status_code=404, detail=f"Tariff rule '{rule_id}' not found")
+        await self.db.delete(rule)
+        await self.db.flush()
+
     async def list_exclusions(self, hts_code: str | None) -> list[Exclusion]:
         stmt = select(Exclusion)
         if hts_code:
@@ -96,3 +112,31 @@ class TariffService:
         self.db.add(exclusion)
         await self.db.flush()
         return exclusion
+
+    async def update_exclusion(self, exclusion_id: str, data: ExclusionUpdate) -> Exclusion:
+        """Update an exclusion. Raises 404 if not found."""
+        stmt = select(Exclusion).where(Exclusion.id == exclusion_id)
+        result = await self.db.execute(stmt)
+        exclusion = result.scalar_one_or_none()
+        if not exclusion:
+            raise HTTPException(status_code=404, detail=f"Exclusion '{exclusion_id}' not found")
+
+        if data.effective_to is not None:
+            exclusion.effective_to = data.effective_to
+        if data.description is not None:
+            exclusion.description = data.description
+        if data.source_reference is not None:
+            exclusion.source_reference = data.source_reference
+
+        await self.db.flush()
+        return exclusion
+
+    async def delete_exclusion(self, exclusion_id: str) -> None:
+        """Delete an exclusion. Raises 404 if not found."""
+        stmt = select(Exclusion).where(Exclusion.id == exclusion_id)
+        result = await self.db.execute(stmt)
+        exclusion = result.scalar_one_or_none()
+        if not exclusion:
+            raise HTTPException(status_code=404, detail=f"Exclusion '{exclusion_id}' not found")
+        await self.db.delete(exclusion)
+        await self.db.flush()

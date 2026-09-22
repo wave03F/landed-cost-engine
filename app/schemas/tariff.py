@@ -52,6 +52,12 @@ class ExclusionCreate(BaseModel):
     source_reference: str = Field(default="")
 
 
+class ExclusionUpdate(BaseModel):
+    effective_to: date | None = None
+    description: str | None = None
+    source_reference: str | None = None
+
+
 class ExclusionResponse(BaseModel):
     id: str
     hts_code: str

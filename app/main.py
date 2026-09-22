@@ -10,6 +10,7 @@ from app.config import get_settings
 from app.routers import calculation, hts_codes, tariff_rules, fx_rates, audit
 from app.routers.auth_router import router as auth_router
 from app.routers.favorites import router as favorites_router
+from app.routers.users import router as users_router
 
 
 async def _ensure_database_exists():
@@ -111,6 +112,7 @@ app.include_router(tariff_rules.router, tags=["Tariff Rules"])
 app.include_router(fx_rates.router, tags=["Exchange Rates"])
 app.include_router(audit.router, tags=["Audit Trail"])
 app.include_router(favorites_router)
+app.include_router(users_router)
 
 
 @app.get("/health", tags=["System"], summary="Health check")

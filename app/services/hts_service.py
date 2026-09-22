@@ -1,9 +1,11 @@
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.hts_code import HTSCode
-from app.schemas.hts import HTSCodeCreate
+from app.models.tariff_rule import TariffRule
+from app.models.exclusion import Exclusion
+from app.schemas.hts import HTSCodeCreate, HTSCodeUpdate
 
 
 class HTSService:
@@ -88,3 +90,58 @@ class HTSService:
         self.db.add(hts)
         await self.db.flush()
         return hts
+
+    async def update(self, code: str, data: HTSCodeUpdate) -> HTSCode:
+        """Update an existing HTS code's description/parent. Raises 404 if not found."""
+        hts = await self.get_by_code(code)
+        if data.description is not None:
+            hts.description = data.description
+        if data.parent_code is not None:
+            hts.parent_code = data.parent_code
+        await self.db.flush()
+        return hts
+
+    async def delete(self, code: str) -> None:
+        """Delete an HTS code. Raises 404 if not found.
+
+        Referential guard: refuses (HTTP 409) if any tariff rule or exclusion
+        still references this code, so the calculation engine never ends up with
+        dangling references. Detach those references first (or delete them) before
+        removing the HTS code.
+        """
+        hts = await self.get_by_code(code)
+
+        # Match both dotted and undotted forms of the code (e.g. "8483.40" / "848340")
+        code_variants = {code, code.replace(".", "")}
+        clean = code.replace(".", "")
+        if len(clean) > 4:
+            code_variants.add(f"{clean[:4]}.{clean[4:]}")
+
+        rule_count = await self._count_referencing_rules(code_variants)
+        exclusion_count = await self._count_referencing_exclusions(code_variants)
+        if rule_count or exclusion_count:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"Cannot delete HTS code '{code}': it is still referenced by "
+                    f"{rule_count} tariff rule(s) and {exclusion_count} exclusion(s). "
+                    "Remove or reassign those first."
+                ),
+            )
+
+        await self.db.delete(hts)
+        await self.db.flush()
+
+    async def _count_referencing_rules(self, code_variants: set[str]) -> int:
+        stmt = select(func.count()).select_from(TariffRule).where(
+            TariffRule.hts_code_pattern.in_(code_variants)
+        )
+        result = await self.db.execute(stmt)
+        return int(result.scalar() or 0)
+
+    async def _count_referencing_exclusions(self, code_variants: set[str]) -> int:
+        stmt = select(func.count()).select_from(Exclusion).where(
+            Exclusion.hts_code.in_(code_variants)
+        )
+        result = await self.db.execute(stmt)
+        return int(result.scalar() or 0)

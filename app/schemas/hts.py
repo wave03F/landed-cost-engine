@@ -9,6 +9,11 @@ class HTSCodeCreate(BaseModel):
     model_config = {"json_schema_extra": {"examples": [{"code": "8483.40", "description": "Gears and gearing; ball or roller screws; gear boxes and other speed changers", "parent_code": "8483"}]}}
 
 
+class HTSCodeUpdate(BaseModel):
+    description: str | None = Field(default=None, description="Updated description")
+    parent_code: str | None = Field(default=None, description="Updated parent HTS code")
+
+
 class HTSCodeResponse(BaseModel):
     id: str
     code: str

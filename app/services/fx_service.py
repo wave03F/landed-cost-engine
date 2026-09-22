@@ -181,3 +181,12 @@ class FXService:
         self.db.add(rate)
         await self.db.flush()
         return rate
+
+    async def delete_rate(self, rate_id: str) -> None:
+        """Delete an FX rate by id. Raises 404 if not found."""
+        result = await self.db.execute(select(FXRate).where(FXRate.id == rate_id))
+        rate = result.scalar_one_or_none()
+        if not rate:
+            raise HTTPException(status_code=404, detail=f"FX rate '{rate_id}' not found")
+        await self.db.delete(rate)
+        await self.db.flush()

@@ -1,11 +1,11 @@
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth import require_api_key
+from app.auth import require_api_key, require_admin
 from app.database import get_db
 from app.schemas.tariff import (
     TariffRuleResponse, TariffRuleCreate, TariffRuleUpdate,
-    ExclusionResponse, ExclusionCreate,
+    ExclusionResponse, ExclusionCreate, ExclusionUpdate,
 )
 
 router = APIRouter(dependencies=[Depends(require_api_key)])
@@ -23,27 +23,55 @@ async def list_tariff_rules(
     return await service.list_rules(tariff_type, hts_code)
 
 
-@router.post("/tariff-rules", response_model=TariffRuleResponse, status_code=201, summary="สร้างกฎภาษีใหม่")
+@router.post(
+    "/tariff-rules",
+    response_model=TariffRuleResponse,
+    status_code=201,
+    summary="สร้างกฎภาษีใหม่ (admin)",
+    dependencies=[Depends(require_admin)],
+)
 async def create_tariff_rule(
     data: TariffRuleCreate,
     db: AsyncSession = Depends(get_db),
 ):
-    """เพิ่มกฎภาษีใหม่พร้อมตั้ง stacking/mutual-exclusion config"""
+    """เพิ่มกฎภาษีใหม่พร้อมตั้ง stacking/mutual-exclusion config (ต้องเป็น admin)"""
     from app.services.tariff_service import TariffService
     service = TariffService(db)
     return await service.create_rule(data)
 
 
-@router.put("/tariff-rules/{rule_id}", response_model=TariffRuleResponse, summary="แก้ไขกฎภาษี")
+@router.put(
+    "/tariff-rules/{rule_id}",
+    response_model=TariffRuleResponse,
+    summary="แก้ไขกฎภาษี (admin)",
+    dependencies=[Depends(require_admin)],
+)
 async def update_tariff_rule(
     rule_id: str,
     data: TariffRuleUpdate,
     db: AsyncSession = Depends(get_db),
 ):
-    """อัปเดตกฎภาษีที่มีอยู่ เฉพาะ field ที่ส่งมาจะถูกแก้ไข"""
+    """อัปเดตกฎภาษีที่มีอยู่ เฉพาะ field ที่ส่งมาจะถูกแก้ไข (ต้องเป็น admin)"""
     from app.services.tariff_service import TariffService
     service = TariffService(db)
     return await service.update_rule(rule_id, data)
+
+
+@router.delete(
+    "/tariff-rules/{rule_id}",
+    status_code=204,
+    summary="ลบกฎภาษี (admin)",
+    dependencies=[Depends(require_admin)],
+)
+async def delete_tariff_rule(
+    rule_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """ลบกฎภาษี (ต้องเป็น admin). คืน 404 ถ้าไม่พบ.
+    หมายเหตุ: การลบกฎไม่กระทบผลการคำนวณเดิมที่บันทึกไว้ (immutable audit)."""
+    from app.services.tariff_service import TariffService
+    service = TariffService(db)
+    await service.delete_rule(rule_id)
 
 
 @router.get("/exclusions", response_model=list[ExclusionResponse], summary="ดูรายการข้อยกเว้นภาษี")
@@ -57,12 +85,51 @@ async def list_exclusions(
     return await service.list_exclusions(hts_code)
 
 
-@router.post("/exclusions", response_model=ExclusionResponse, status_code=201, summary="สร้างข้อยกเว้นภาษีใหม่")
+@router.post(
+    "/exclusions",
+    response_model=ExclusionResponse,
+    status_code=201,
+    summary="สร้างข้อยกเว้นภาษีใหม่ (admin)",
+    dependencies=[Depends(require_admin)],
+)
 async def create_exclusion(
     data: ExclusionCreate,
     db: AsyncSession = Depends(get_db),
 ):
-    """เพิ่ม exclusion ใหม่ ตั้ง effective_to เป็น null สำหรับยกเว้นถาวร"""
+    """เพิ่ม exclusion ใหม่ ตั้ง effective_to เป็น null สำหรับยกเว้นถาวร (ต้องเป็น admin)"""
     from app.services.tariff_service import TariffService
     service = TariffService(db)
     return await service.create_exclusion(data)
+
+
+@router.put(
+    "/exclusions/{exclusion_id}",
+    response_model=ExclusionResponse,
+    summary="แก้ไขข้อยกเว้นภาษี (admin)",
+    dependencies=[Depends(require_admin)],
+)
+async def update_exclusion(
+    exclusion_id: str,
+    data: ExclusionUpdate,
+    db: AsyncSession = Depends(get_db),
+):
+    """อัปเดต exclusion เฉพาะ field ที่ส่งมาจะถูกแก้ไข (ต้องเป็น admin)"""
+    from app.services.tariff_service import TariffService
+    service = TariffService(db)
+    return await service.update_exclusion(exclusion_id, data)
+
+
+@router.delete(
+    "/exclusions/{exclusion_id}",
+    status_code=204,
+    summary="ลบข้อยกเว้นภาษี (admin)",
+    dependencies=[Depends(require_admin)],
+)
+async def delete_exclusion(
+    exclusion_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """ลบ exclusion (ต้องเป็น admin). คืน 404 ถ้าไม่พบ"""
+    from app.services.tariff_service import TariffService
+    service = TariffService(db)
+    await service.delete_exclusion(exclusion_id)

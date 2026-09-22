@@ -12,11 +12,17 @@ class AuditService:
         self.db = db
 
     async def list_calculations(
-        self, hts_code: str | None, limit: int, offset: int
+        self,
+        hts_code: str | None,
+        limit: int,
+        offset: int,
+        user_id: str | None = None,
     ) -> list[CalculationLog]:
         stmt = select(CalculationLog)
         if hts_code:
             stmt = stmt.where(CalculationLog.hts_code == hts_code)
+        if user_id is not None:
+            stmt = stmt.where(CalculationLog.user_id == user_id)
         stmt = stmt.order_by(CalculationLog.calculated_at.desc()).offset(offset).limit(limit)
         result = await self.db.execute(stmt)
         return result.scalars().all()

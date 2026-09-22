@@ -15,12 +15,16 @@ Full real-world calculation pipeline:
 """
 
 import uuid
-from datetime import datetime
+from datetime import datetime, date
 
-from fastapi import HTTPException
+from fastapi import HTTPException, status
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.auth import Identity
+from app.config import get_settings
 from app.models.calculation_log import CalculationLog
+from app.models.user import User
 from app.schemas.calculation import (
     CalculationRequest,
     CalculationResponse,
@@ -65,8 +69,19 @@ class CalculationService:
         self.hts_service = HTSService(db)
         self.rule_engine = RuleEngine(db)
 
-    async def calculate(self, request: CalculationRequest) -> CalculationResponse:
-        """Perform a full landed cost calculation with all real-world rules."""
+    async def calculate(
+        self, request: CalculationRequest, identity: Identity | None = None
+    ) -> CalculationResponse:
+        """Perform a full landed cost calculation with all real-world rules.
+
+        If ``identity`` belongs to a logged-in user, the daily calculation quota
+        is enforced and the resulting audit log is attributed to that user.
+        """
+
+        # Step 0: Enforce daily quota (only for logged-in users)
+        user_id = identity.user_id if identity else None
+        if user_id:
+            await self._enforce_daily_quota(user_id, identity.is_admin)
 
         # Step 1: Validate HTS code
         hts_exists = await self.hts_service.validate_code_exists(request.hts_code)
@@ -105,7 +120,8 @@ class CalculationService:
             # De minimis: no duties, no fees
             calculation_id = str(uuid.uuid4())
             await self._log_calculation(
-                calculation_id, request, invoice_value_usd, total_value, 0, 0, total_value, True
+                calculation_id, request, invoice_value_usd, total_value, 0, 0, total_value, True,
+                user_id=user_id,
             )
             return CalculationResponse(
                 calculation_id=calculation_id,
@@ -220,6 +236,7 @@ class CalculationService:
             total_duty, total_fees, landed_cost_usd, False,
             [r.rule_id for r in resolution.applied_rules],
             [exc.id for exc in resolution.exclusions_used],
+            user_id=user_id,
         )
 
         return CalculationResponse(
@@ -268,6 +285,44 @@ class CalculationService:
         return round(customs_value * HMF_RATE, 2)
 
     # =========================================================================
+    # Daily quota enforcement
+    # =========================================================================
+
+    async def _enforce_daily_quota(self, user_id: str, is_admin: bool) -> None:
+        """Count and enforce per-user daily calculation limit.
+
+        Uses ``users.daily_calculations`` + ``users.last_calculation_date``:
+        - When the stored date is not today, the counter resets to 0.
+        - When the counter reaches the configured limit, raises HTTP 429.
+        - Otherwise increments the counter for today.
+        """
+        settings = get_settings()
+        limit = settings.daily_calc_limit_admin if is_admin else settings.daily_calc_limit_user
+
+        result = await self.db.execute(select(User).where(User.id == user_id))
+        user = result.scalar_one_or_none()
+        if not user:
+            # No user row (e.g. API key / dev mode) → nothing to enforce
+            return
+
+        today = date.today().isoformat()
+        if user.last_calculation_date != today:
+            user.daily_calculations = 0
+            user.last_calculation_date = today
+
+        if user.daily_calculations >= limit:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail=(
+                    f"Daily calculation limit reached ({limit} per day). "
+                    "Try again tomorrow or contact an administrator."
+                ),
+            )
+
+        user.daily_calculations += 1
+        await self.db.flush()
+
+    # =========================================================================
     # Audit logging
     # =========================================================================
 
@@ -283,9 +338,11 @@ class CalculationService:
         de_minimis: bool,
         matched_rules: list[str] | None = None,
         exclusions_applied: list[str] | None = None,
+        user_id: str | None = None,
     ):
         log = CalculationLog(
             id=calculation_id,
+            user_id=user_id,
             hts_code=request.hts_code,
             import_date=request.import_date,
             origin_country=request.origin_country,
