@@ -6,6 +6,7 @@ from app.database import get_db
 from app.schemas.tariff import (
     TariffRuleResponse, TariffRuleCreate, TariffRuleUpdate,
     ExclusionResponse, ExclusionCreate, ExclusionUpdate,
+    CloseRequest,
 )
 
 router = APIRouter(dependencies=[Depends(require_api_key)])
@@ -68,10 +69,34 @@ async def delete_tariff_rule(
     db: AsyncSession = Depends(get_db),
 ):
     """ลบกฎภาษี (ต้องเป็น admin). คืน 404 ถ้าไม่พบ.
-    หมายเหตุ: การลบกฎไม่กระทบผลการคำนวณเดิมที่บันทึกไว้ (immutable audit)."""
+
+    เฉพาะกฎที่ **ยังไม่เคยมีผล** (effective_from อยู่ในอนาคต) จึงจะลบได้.
+    กฎที่มีผลแล้วจะได้ 409 — ให้ใช้ POST /tariff-rules/{id}/close แทน
+    เพื่อรักษาประวัติ audit ไว้."""
     from app.services.tariff_service import TariffService
     service = TariffService(db)
     await service.delete_rule(rule_id)
+
+
+@router.post(
+    "/tariff-rules/{rule_id}/close",
+    response_model=TariffRuleResponse,
+    summary="ปิดกฎภาษี (soft-close, admin)",
+    dependencies=[Depends(require_admin)],
+)
+async def close_tariff_rule(
+    rule_id: str,
+    data: CloseRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """ตั้งวันสิ้นสุด (effective_to) ให้กฎภาษี แทนการลบทิ้ง.
+
+    ใช้สำหรับ "ปิด" กฎที่เคยหรือกำลังมีผล โดยไม่ลบออกจากระบบ
+    เพื่อรักษา audit trail. หลังจากวันที่กำหนด กฎจะไม่ถูกนำไปใช้ในการคำนวณอีก
+    (ต้องเป็น admin)."""
+    from app.services.tariff_service import TariffService
+    service = TariffService(db)
+    return await service.close_rule(rule_id, data)
 
 
 @router.get("/exclusions", response_model=list[ExclusionResponse], summary="ดูรายการข้อยกเว้นภาษี")
@@ -129,7 +154,28 @@ async def delete_exclusion(
     exclusion_id: str,
     db: AsyncSession = Depends(get_db),
 ):
-    """ลบ exclusion (ต้องเป็น admin). คืน 404 ถ้าไม่พบ"""
+    """ลบ exclusion (ต้องเป็น admin). คืน 404 ถ้าไม่พบ.
+
+    เฉพาะ exclusion ที่ **ยังไม่เคยมีผล** จึงจะลบได้.
+    ที่มีผลแล้วจะได้ 409 — ให้ใช้ POST /exclusions/{id}/close แทน."""
     from app.services.tariff_service import TariffService
     service = TariffService(db)
     await service.delete_exclusion(exclusion_id)
+
+
+@router.post(
+    "/exclusions/{exclusion_id}/close",
+    response_model=ExclusionResponse,
+    summary="ปิดข้อยกเว้นภาษี (soft-close, admin)",
+    dependencies=[Depends(require_admin)],
+)
+async def close_exclusion(
+    exclusion_id: str,
+    data: CloseRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """ตั้งวันสิ้นสุด (effective_to) ให้ exclusion แทนการลบทิ้ง เพื่อรักษา audit trail
+    (ต้องเป็น admin)."""
+    from app.services.tariff_service import TariffService
+    service = TariffService(db)
+    return await service.close_exclusion(exclusion_id, data)

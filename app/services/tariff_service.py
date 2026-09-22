@@ -1,3 +1,5 @@
+from datetime import date
+
 from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -9,6 +11,7 @@ from app.schemas.tariff import (
     TariffRuleUpdate,
     ExclusionCreate,
     ExclusionUpdate,
+    CloseRequest,
 )
 
 
@@ -76,15 +79,59 @@ class TariffService:
         return rule
 
     async def delete_rule(self, rule_id: str) -> None:
-        """Delete a tariff rule. Raises 404 if not found.
-        Past calculation logs are unaffected (they store the rule ids used at calc time)."""
+        """Hard-delete a tariff rule.
+
+        Guarded: only rules that have **not yet taken effect** (effective_from
+        is in the future) may be hard-deleted.  Rules that are currently active
+        or have been active in the past must be **closed** via
+        ``close_rule()`` instead, preserving the audit trail.
+        """
         stmt = select(TariffRule).where(TariffRule.id == rule_id)
         result = await self.db.execute(stmt)
         rule = result.scalar_one_or_none()
         if not rule:
             raise HTTPException(status_code=404, detail=f"Tariff rule '{rule_id}' not found")
+
+        today = date.today()
+        if rule.effective_from <= today:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"Tariff rule '{rule_id}' has already taken effect "
+                    f"(effective_from={rule.effective_from}). "
+                    "Use POST /tariff-rules/{id}/close to set an end date instead of deleting. "
+                    "This preserves the audit trail for past calculations."
+                ),
+            )
+
         await self.db.delete(rule)
         await self.db.flush()
+
+    async def close_rule(self, rule_id: str, data: CloseRequest) -> TariffRule:
+        """Soft-close a tariff rule by setting its effective_to date.
+
+        This is the preferred way to "retire" a rule while keeping it in the
+        database for audit purposes.  Past calculations that referenced this
+        rule are unaffected because their logs store the rules used at calc time.
+        """
+        stmt = select(TariffRule).where(TariffRule.id == rule_id)
+        result = await self.db.execute(stmt)
+        rule = result.scalar_one_or_none()
+        if not rule:
+            raise HTTPException(status_code=404, detail=f"Tariff rule '{rule_id}' not found")
+
+        if rule.effective_to is not None and rule.effective_to <= data.close_date:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Rule already ends on {rule.effective_to}, which is on or before "
+                    f"the requested close date {data.close_date}."
+                ),
+            )
+
+        rule.effective_to = data.close_date
+        await self.db.flush()
+        return rule
 
     async def list_exclusions(self, hts_code: str | None) -> list[Exclusion]:
         stmt = select(Exclusion)
@@ -132,11 +179,50 @@ class TariffService:
         return exclusion
 
     async def delete_exclusion(self, exclusion_id: str) -> None:
-        """Delete an exclusion. Raises 404 if not found."""
+        """Hard-delete an exclusion.
+
+        Guarded: only exclusions that have **not yet taken effect** may be
+        hard-deleted.  Active or past exclusions must be **closed** via
+        ``close_exclusion()`` to preserve the audit trail.
+        """
         stmt = select(Exclusion).where(Exclusion.id == exclusion_id)
         result = await self.db.execute(stmt)
         exclusion = result.scalar_one_or_none()
         if not exclusion:
             raise HTTPException(status_code=404, detail=f"Exclusion '{exclusion_id}' not found")
+
+        today = date.today()
+        if exclusion.effective_from <= today:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"Exclusion '{exclusion_id}' has already taken effect "
+                    f"(effective_from={exclusion.effective_from}). "
+                    "Use POST /exclusions/{id}/close to set an end date instead of deleting. "
+                    "This preserves the audit trail for past calculations."
+                ),
+            )
+
         await self.db.delete(exclusion)
         await self.db.flush()
+
+    async def close_exclusion(self, exclusion_id: str, data: CloseRequest) -> Exclusion:
+        """Soft-close an exclusion by setting its effective_to date."""
+        stmt = select(Exclusion).where(Exclusion.id == exclusion_id)
+        result = await self.db.execute(stmt)
+        exclusion = result.scalar_one_or_none()
+        if not exclusion:
+            raise HTTPException(status_code=404, detail=f"Exclusion '{exclusion_id}' not found")
+
+        if exclusion.effective_to is not None and exclusion.effective_to <= data.close_date:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Exclusion already ends on {exclusion.effective_to}, which is on or before "
+                    f"the requested close date {data.close_date}."
+                ),
+            )
+
+        exclusion.effective_to = data.close_date
+        await self.db.flush()
+        return exclusion

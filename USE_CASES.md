@@ -4,11 +4,11 @@
 > วิเคราะห์จากโค้ดจริง (FastAPI routers/services + Next.js routes) ไม่ใช่การสมมติ
 > ใช้อ้างอิงร่วมกันได้ระหว่างทีม Dev / QA / Business
 >
-> **เวอร์ชัน:** 3.0 · **วันที่วิเคราะห์:** 22 ก.ย. 2026 · **ผู้จัดทำ:** System Analysis
+> **เวอร์ชัน:** 3.1 · **วันที่วิเคราะห์:** 22 ก.ย. 2026 · **ผู้จัดทำ:** System Analysis
 >
-> **หมายเหตุเวอร์ชัน 3.0:** สะท้อนการแก้ไขล่าสุดครบทุกประเด็น — บังคับสิทธิ์ Admin, โควตาต่อวัน,
+> **หมายเหตุเวอร์ชัน 3.1:** สะท้อนการแก้ไขล่าสุดครบทุกประเด็น — บังคับสิทธิ์ Admin, โควตาต่อวัน,
 > ประวัติ per-user, CRUD ครบทุก entity (รวม FX delete), endpoint จัดการสิทธิ์ผู้ใช้ (promote/demote),
-> และ referential guard กันลบ HTS ที่ยังมีกฎอ้างถึง
+> referential guard กันลบ HTS ที่ยังมีกฎอ้างถึง, และ **soft-close** สำหรับกฎภาษี/exclusion เชิง compliance
 
 ---
 
@@ -77,11 +77,13 @@
 - **UC-030** ดูรายการกฎภาษี
 - **UC-031** สร้างกฎภาษีใหม่ *(admin)*
 - **UC-032** แก้ไขกฎภาษี *(admin)*
-- **UC-033** ลบกฎภาษี *(admin)* — **ใหม่**
+- **UC-033** ลบกฎภาษี *(admin)* — hard delete เฉพาะกฎที่ยังไม่มีผล
+- **UC-038** ปิดกฎภาษี (soft-close) *(admin)* — **ใหม่**
 - **UC-034** ดูรายการข้อยกเว้นภาษี
 - **UC-035** สร้างข้อยกเว้นภาษีใหม่ *(admin)*
-- **UC-036** แก้ไขข้อยกเว้นภาษี *(admin)* — **ใหม่**
-- **UC-037** ลบข้อยกเว้นภาษี *(admin)* — **ใหม่**
+- **UC-036** แก้ไขข้อยกเว้นภาษี *(admin)*
+- **UC-037** ลบข้อยกเว้นภาษี *(admin)* — hard delete เฉพาะที่ยังไม่มีผล
+- **UC-039** ปิดข้อยกเว้นภาษี (soft-close) *(admin)* — **ใหม่**
 
 ### Module 5: FX Rates (อัตราแลกเปลี่ยน)
 - **UC-040** ดูอัตราแลกเปลี่ยนย้อนหลัง
@@ -390,21 +392,45 @@
 
 ---
 
-### UC-033 — ลบกฎภาษี *(admin)* — ใหม่
+### UC-033 — ลบกฎภาษี *(admin)*
 
 - **Use Case ID:** UC-033
 - **Actor:** Admin / API Client (trusted service)
-- **Description:** ลบกฎภาษีออกจากระบบ
+- **Description:** ลบกฎภาษีออกจากระบบแบบถาวร (hard delete) — อนุญาตเฉพาะกฎที่ยังไม่เคยมีผล
 - **Preconditions:** ผ่านการยืนยันตัวตนแบบ admin; กฎที่ระบุมีอยู่
 - **Main Flow:**
   1. Client ส่ง `DELETE /tariff-rules/{rule_id}`
   2. ระบบตรวจสิทธิ์ admin และค้นหากฎ
-  3. ระบบลบและตอบ **HTTP 204**
+  3. **[ใหม่] ระบบตรวจว่ากฎยังไม่มีผล** (`effective_from` อยู่ในอนาคต)
+  4. ถ้ายังไม่มีผล ระบบลบและตอบ **HTTP 204**
 - **Exception Flow:**
   - 2a. ผู้ใช้ทั่วไป → **HTTP 403**
   - 2b. ไม่พบ rule_id → **HTTP 404**
-- **Postconditions:** กฎถูกลบ; การคำนวณเดิมที่บันทึกไว้ไม่กระทบ (log เก็บ rule_id ที่ใช้ ณ เวลาคำนวณ)
-- **Business Rules:** ทางเลือกที่ปลอดภัยกว่าการลบคือตั้ง `effective_to` เพื่อปิดกฎตามช่วงเวลา (soft-close)
+  - **3a. [ใหม่] กฎมีผลแล้ว/เคยมีผล** → **HTTP 409** พร้อมข้อความแนะให้ใช้ `POST /tariff-rules/{id}/close` แทน
+- **Postconditions:** กฎที่ยังไม่มีผลถูกลบ; การคำนวณเดิมที่บันทึกไว้ไม่กระทบ (log เก็บ rule_id ที่ใช้ ณ เวลาคำนวณ)
+- **Business Rules:**
+  - **[ใหม่]** hard delete ได้เฉพาะกฎที่ยังไม่เคยมีผล (เช่น ป้อนผิดแล้วจะลบทิ้ง); กฎที่มีผลแล้วต้องใช้ soft-close (UC-038) เพื่อรักษา audit trail
+
+---
+
+### UC-038 — ปิดกฎภาษี (soft-close) *(admin)* — ใหม่
+
+- **Use Case ID:** UC-038
+- **Actor:** Admin / API Client (trusted service)
+- **Description:** "ปิด" กฎภาษีที่เคยหรือกำลังมีผล โดยตั้งวันสิ้นสุด (`effective_to`) แทนการลบ เพื่อรักษาประวัติเชิง audit
+- **Preconditions:** ผ่านการยืนยันตัวตนแบบ admin; กฎที่ระบุมีอยู่
+- **Main Flow:**
+  1. Client ส่ง `POST /tariff-rules/{rule_id}/close` พร้อม `close_date`
+  2. ระบบตรวจสิทธิ์ admin และค้นหากฎ
+  3. ระบบตั้ง `effective_to = close_date` และคืนกฎที่อัปเดต
+- **Exception Flow:**
+  - 2a. ผู้ใช้ทั่วไป → **HTTP 403**
+  - 2b. ไม่พบ rule_id → **HTTP 404**
+  - 3a. กฎมีวันสิ้นสุดอยู่ก่อนหรือเท่ากับ close_date อยู่แล้ว → **HTTP 400**
+- **Postconditions:** กฎยังอยู่ในระบบ (เพื่อ audit) แต่จะไม่ถูกนำไปใช้ในการคำนวณหลัง `close_date`
+- **Business Rules:**
+  - เป็นวิธี "retire" กฎที่แนะนำ — เก็บกฎไว้ในฐานข้อมูลเพื่อตรวจสอบย้อนหลัง
+  - การคำนวณเดิมที่อ้างถึงกฎนี้ไม่กระทบ (log เก็บกฎที่ใช้ ณ เวลาคำนวณ)
 
 ---
 
@@ -459,21 +485,42 @@
 
 ---
 
-### UC-037 — ลบข้อยกเว้นภาษี *(admin)* — ใหม่
+### UC-037 — ลบข้อยกเว้นภาษี *(admin)*
 
 - **Use Case ID:** UC-037
 - **Actor:** Admin / API Client (trusted service)
-- **Description:** ลบ exclusion ออกจากระบบ
+- **Description:** ลบ exclusion ออกจากระบบแบบถาวร (hard delete) — อนุญาตเฉพาะที่ยังไม่เคยมีผล
 - **Preconditions:** ผ่านการยืนยันตัวตนแบบ admin; exclusion ที่ระบุมีอยู่
 - **Main Flow:**
   1. Client ส่ง `DELETE /exclusions/{exclusion_id}`
   2. ระบบตรวจสิทธิ์ admin และค้นหา exclusion
-  3. ระบบลบและตอบ **HTTP 204**
+  3. **[ใหม่] ระบบตรวจว่า exclusion ยังไม่มีผล** (`effective_from` อยู่ในอนาคต)
+  4. ถ้ายังไม่มีผล ระบบลบและตอบ **HTTP 204**
 - **Exception Flow:**
   - 2a. ผู้ใช้ทั่วไป → **HTTP 403**
   - 2b. ไม่พบ exclusion_id → **HTTP 404**
-- **Postconditions:** exclusion ถูกลบ; การคำนวณในช่วงหลังจากนี้จะไม่ใช้ exclusion นั้นอีก
-- **Business Rules:** —
+  - **3a. [ใหม่] exclusion มีผลแล้ว/เคยมีผล** → **HTTP 409** พร้อมข้อความแนะให้ใช้ `POST /exclusions/{id}/close` แทน
+- **Postconditions:** exclusion ที่ยังไม่มีผลถูกลบ
+- **Business Rules:** hard delete ได้เฉพาะที่ยังไม่เคยมีผล; ที่มีผลแล้วต้องใช้ soft-close (UC-039)
+
+---
+
+### UC-039 — ปิดข้อยกเว้นภาษี (soft-close) *(admin)* — ใหม่
+
+- **Use Case ID:** UC-039
+- **Actor:** Admin / API Client (trusted service)
+- **Description:** "ปิด" exclusion ที่เคยหรือกำลังมีผล โดยตั้งวันสิ้นสุด (`effective_to`) แทนการลบ
+- **Preconditions:** ผ่านการยืนยันตัวตนแบบ admin; exclusion ที่ระบุมีอยู่
+- **Main Flow:**
+  1. Client ส่ง `POST /exclusions/{exclusion_id}/close` พร้อม `close_date`
+  2. ระบบตรวจสิทธิ์ admin และค้นหา exclusion
+  3. ระบบตั้ง `effective_to = close_date` และคืน exclusion ที่อัปเดต
+- **Exception Flow:**
+  - 2a. ผู้ใช้ทั่วไป → **HTTP 403**
+  - 2b. ไม่พบ exclusion_id → **HTTP 404**
+  - 3a. exclusion มีวันสิ้นสุดอยู่ก่อนหรือเท่ากับ close_date อยู่แล้ว → **HTTP 400**
+- **Postconditions:** exclusion ยังอยู่ในระบบ (เพื่อ audit) แต่จะไม่ถูกนำไปใช้ในการคำนวณหลัง `close_date`
+- **Business Rules:** เป็นวิธี "retire" exclusion ที่แนะนำ — เก็บไว้เพื่อตรวจสอบย้อนหลัง
 
 ---
 
@@ -734,8 +781,8 @@ Registered User (role = user)
 
 Admin (role = admin — สืบทอดทุกอย่างของ User + จัดการข้อมูลอ้างอิง + จัดการผู้ใช้ + เห็นประวัติทุกคน)
   ├── UC-022 เพิ่ม HTS   ├── UC-023 แก้ไข HTS   ├── UC-024 ลบ HTS (มี referential guard)
-  ├── UC-031 สร้างกฎภาษี  ├── UC-032 แก้ไขกฎภาษี  ├── UC-033 ลบกฎภาษี
-  ├── UC-035 สร้าง Exclusion  ├── UC-036 แก้ไข Exclusion  ├── UC-037 ลบ Exclusion
+  ├── UC-031 สร้างกฎภาษี  ├── UC-032 แก้ไขกฎภาษี  ├── UC-033 ลบกฎภาษี  ├── UC-038 ปิดกฎภาษี
+  ├── UC-035 สร้าง Exclusion  ├── UC-036 แก้ไข Exclusion  ├── UC-037 ลบ Exclusion  ├── UC-039 ปิด Exclusion
   ├── UC-041 เพิ่ม/อัปเดต FX   ├── UC-042 ลบ FX
   ├── UC-080 ดูรายชื่อผู้ใช้   ├── UC-081 ดูผู้ใช้รายคน   ├── UC-082 เปลี่ยน role ผู้ใช้
   └── UC-050/051 ดูประวัติการคำนวณของทุกคน
@@ -762,9 +809,10 @@ FX Rate Source ── Actor รอง ── เกี่ยวข้องก�
 - **UC-070 เปรียบเทียบ** `<<include>>` **UC-010** (เรียกซ้ำหลายกรณี)
 - **UC-071 พิมพ์/ส่งออก** `<<extend>>` ผลลัพธ์ของ **UC-010**
 - **UC-001 OAuth Login** `<<include>>` "ออก JWT" ซึ่งเป็น precondition ของทุก UC ที่ต้องล็อกอิน
-- ทุก UC แบบ **admin** (UC-022/023/024/031/032/033/035/036/037/041/042 และ UC-080/081/082) `<<include>>` "ตรวจสิทธิ์ Admin (require_admin)"
+- ทุก UC แบบ **admin** (UC-022/023/024/031/032/033/035/036/037/038/039/041/042 และ UC-080/081/082) `<<include>>` "ตรวจสิทธิ์ Admin (require_admin)"
 - ทุก UC แบบ **read** `<<include>>` "ตรวจสิทธิ์ (require_api_key / JWT)"
 - **UC-024 ลบ HTS** `<<include>>` "ตรวจ referential guard (นับกฎภาษี/exclusion ที่อ้างถึง)"
+- **UC-033 ลบกฎภาษี / UC-037 ลบ Exclusion** `<<extend>>` "กัน hard delete ของที่มีผลแล้ว (แนะ soft-close UC-038/039)"
 - **UC-082 เปลี่ยน role** `<<extend>>` "กันการลด role ตัวเอง"
 
 ---
@@ -787,10 +835,12 @@ FX Rate Source ── Actor รอง ── เกี่ยวข้องก�
 | UC-031 | สร้างกฎภาษี | Admin | `POST /tariff-rules` | admin | High |
 | UC-032 | แก้ไขกฎภาษี | Admin | `PUT /tariff-rules/{id}` | admin | High |
 | UC-033 | ลบกฎภาษี | Admin | `DELETE /tariff-rules/{id}` | admin | Medium |
+| UC-038 | ปิดกฎภาษี (soft-close) | Admin | `POST /tariff-rules/{id}/close` | admin | Medium |
 | UC-034 | ดู Exclusions | User / Admin | `GET /exclusions` | auth | Medium |
 | UC-035 | สร้าง Exclusion | Admin | `POST /exclusions` | admin | Medium |
 | UC-036 | แก้ไข Exclusion | Admin | `PUT /exclusions/{id}` | admin | Low |
 | UC-037 | ลบ Exclusion | Admin | `DELETE /exclusions/{id}` | admin | Low |
+| UC-039 | ปิด Exclusion (soft-close) | Admin | `POST /exclusions/{id}/close` | admin | Low |
 | UC-040 | ดู FX Rates | User / Admin | `GET /fx-rates` | auth | Medium |
 | UC-041 | เพิ่ม/อัปเดต FX | Admin | `POST /fx-rates` | admin | High |
 | UC-042 | ลบ FX | Admin | `DELETE /fx-rates/{id}` | admin | Low |
@@ -805,7 +855,7 @@ FX Rate Source ── Actor รอง ── เกี่ยวข้องก�
 | UC-081 | ดูผู้ใช้รายคน | Admin | `GET /users/{id}` | admin | Low |
 | UC-082 | เปลี่ยน role ผู้ใช้ | Admin | `PUT /users/{id}/role` | admin | High |
 
-**รวม 30 Use Case** — ยืนยันจากโค้ดจริงทั้งหมด
+**รวม 32 Use Case** — ยืนยันจากโค้ดจริงทั้งหมด
 
 ---
 
@@ -839,12 +889,21 @@ FX Rate Source ── Actor รอง ── เกี่ยวข้องก�
 4. **การลบผู้ใช้ (User delete)** — ยังไม่มี endpoint ลบผู้ใช้ (มีแค่เปลี่ยน role) — ต้องการหรือใช้ soft-disable แทน? และควรจัดการ favorites/calculation logs ของผู้ใช้นั้นอย่างไร?
 5. **การลบกฎภาษี/exclusion กลางคัน (UC-033/037)** — ปัจจุบันลบได้ทันที (hard delete) ทางเลือกที่ปลอดภัยกว่าคือใช้ `effective_to` ปิดกฎ (soft-close) — ต้องการบังคับ soft-close ไหม?
 
+### ✅ ประเด็นที่แก้ไขเพิ่มใน v3.1
+8. **Soft-close สำหรับกฎภาษีและ exclusion แล้ว (UC-038/039)** — hard delete (UC-033/037) จำกัดเฉพาะรายการที่ยังไม่เคยมีผล; รายการที่มีผลแล้วต้องใช้ soft-close (ตั้ง `effective_to`) เพื่อรักษา audit trail — ตอบโจทย์ compliance โดยตรง
+
+### ❓ ประเด็นที่ยังต้องยืนยันกับ Stakeholder (ปรับปรุง)
+1. **โควตาสำหรับผู้เรียกแบบ API Key** — ปัจจุบัน API Key ไม่ผูกโควตาและเห็นประวัติทั้งหมด (ถือเป็น trusted service) — ตรงกับเจตนาธุรกิจหรือไม่?
+2. **พฤติกรรม FX fallback** — กรณีไม่มีอัตราแลกเปลี่ยนในฐานข้อมูลเลย ระบบจะดึงจาก live API (frankfurter.app) ถ้ายังไม่ได้จะคืน 404 — ยืนยัน behavior นี้กับธุรกิจหรือไม่?
+3. **ค่าโควตาต่อวัน** — user 50 / admin 99,999 เป็นค่าเริ่มต้น — ต้องการปรับตามแพ็กเกจ/ลูกค้าไหม?
+4. **การลบผู้ใช้ (User delete)** — ยังไม่มี endpoint ลบผู้ใช้ (มีแค่เปลี่ยน role) — ต้องการหรือใช้ soft-disable แทน? และควรจัดการ favorites/calculation logs ของผู้ใช้นั้นอย่างไร?
+
 ### 🗺️ Roadmap (ยังไม่ implement — ไม่ได้ทำเป็น Use Case)
 Batch calculation, Multi-origin support, Rule expiration alerts, Government data sync, Anti-dumping duties (AD/CVD มีใน type แล้วแต่ยังไม่มี flow เต็ม), Rate comparison mode
 
 ---
 
-> **สรุป:** ระบบมี **30 Use Case** ที่ยืนยันจากโค้ดจริง โดย **UC-010 (คำนวณ Landed Cost)** เป็นหัวใจ
-> ประเด็นค้างจาก v1.0 ทั้ง 4 ข้อ (admin gating, โควตา, ประวัติ per-user, CRUD) และคำถามเชิงนโยบายจาก v2.0 อีก 3 ข้อ
-> (จัดการสิทธิ์ผู้ใช้, FX delete, referential guard) ได้รับการแก้ไขและยืนยันด้วยชุดทดสอบ (105 tests ผ่านทั้งหมด)
+> **สรุป:** ระบบมี **32 Use Case** ที่ยืนยันจากโค้ดจริง โดย **UC-010 (คำนวณ Landed Cost)** เป็นหัวใจ
+> ประเด็นค้างจาก v1.0 ทั้ง 4 ข้อ, คำถามนโยบายจาก v2.0 อีก 3 ข้อ (จัดการสิทธิ์ผู้ใช้, FX delete, referential guard)
+> และเรื่อง soft-close เชิง compliance (v3.1) ได้รับการแก้ไขและยืนยันด้วยชุดทดสอบ (105 tests ผ่านทั้งหมด)
 > ที่เหลือเป็นคำถามเชิงนโยบายกับ stakeholder และรายการ roadmap

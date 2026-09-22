@@ -58,6 +58,11 @@ class ExclusionUpdate(BaseModel):
     source_reference: str | None = None
 
 
+class CloseRequest(BaseModel):
+    """Soft-close a rule or exclusion by setting its end date."""
+    close_date: date = Field(..., description="วันที่กฎ/ข้อยกเว้นจะสิ้นสุดผล (effective_to)")
+
+
 class ExclusionResponse(BaseModel):
     id: str
     hts_code: str
