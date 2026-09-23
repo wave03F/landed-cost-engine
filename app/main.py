@@ -41,7 +41,13 @@ async def _ensure_database_exists():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Create database and tables on startup."""
+    """Create database, tables, and seed reference data on startup.
+
+    Seeding runs here (in addition to the standalone `python -m app.init_db`
+    script) so the service can bring itself up even if the build-time init step
+    was skipped or the database was not reachable during build. All operations
+    are idempotent and failures are logged without crashing the app.
+    """
     await _ensure_database_exists()
     engine = get_engine()
     async with engine.begin() as conn:
@@ -53,6 +59,19 @@ async def lifespan(app: FastAPI):
             EXCEPTION WHEN others THEN NULL;
             END $$;
         """))
+
+    # Seed reference data (idempotent, best-effort)
+    try:
+        from app.database import get_session_factory
+        from app.init_db import seed_data_into_session
+
+        session_factory = get_session_factory()
+        async with session_factory() as session:
+            async with session.begin():
+                await seed_data_into_session(session)
+    except Exception as e:  # noqa: BLE001 — never block startup on seeding
+        print(f"[startup] Seeding skipped due to error: {type(e).__name__}: {e}")
+
     yield
     await engine.dispose()
 
