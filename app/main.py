@@ -39,29 +39,31 @@ async def _ensure_database_exists():
         await admin_engine.dispose()
 
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    """Create database, tables, and seed reference data on startup.
+async def _init_database_on_startup() -> bool:
+    """Create tables, run lightweight migrations, and seed data (best-effort).
 
-    Seeding runs here (in addition to the standalone `python -m app.init_db`
-    script) so the service can bring itself up even if the build-time init step
-    was skipped or the database was not reachable during build. All operations
-    are idempotent and failures are logged without crashing the app.
+    Returns True on success, False if the database could not be reached.
+    Never raises: startup must not crash just because the database is not yet
+    reachable (e.g. a misconfigured DATABASE_URL or a DB still warming up).
+    The service will still bind its port so health checks pass, and DB-backed
+    endpoints will surface their own errors when actually called.
     """
-    await _ensure_database_exists()
-    engine = get_engine()
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-        # Add missing columns to existing tables (safe to run multiple times)
-        await conn.execute(text("""
-            DO $$ BEGIN
-                ALTER TABLE calculation_logs ADD COLUMN IF NOT EXISTS user_id VARCHAR(36);
-            EXCEPTION WHEN others THEN NULL;
-            END $$;
-        """))
-
-    # Seed reference data (idempotent, best-effort)
     try:
+        await _ensure_database_exists()
+        engine = get_engine()
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+            # Add missing columns to existing tables (safe to run multiple times).
+            # PostgreSQL-only DDL; skip on other backends (e.g. SQLite).
+            if "postgresql" in get_settings().async_database_url:
+                await conn.execute(text("""
+                    DO $$ BEGIN
+                        ALTER TABLE calculation_logs ADD COLUMN IF NOT EXISTS user_id VARCHAR(36);
+                    EXCEPTION WHEN others THEN NULL;
+                    END $$;
+                """))
+
+        # Seed reference data (idempotent)
         from app.database import get_session_factory
         from app.init_db import seed_data_into_session
 
@@ -69,11 +71,29 @@ async def lifespan(app: FastAPI):
         async with session_factory() as session:
             async with session.begin():
                 await seed_data_into_session(session)
-    except Exception as e:  # noqa: BLE001 — never block startup on seeding
-        print(f"[startup] Seeding skipped due to error: {type(e).__name__}: {e}")
 
+        print("[startup] Database initialized and seeded successfully.")
+        return True
+    except Exception as e:  # noqa: BLE001 — never block startup on DB errors
+        print(
+            f"[startup] Database init/seed skipped: {type(e).__name__}: {e}. "
+            "The service will start anyway; verify DATABASE_URL and DB availability. "
+            "DB-backed endpoints will fail until the database is reachable."
+        )
+        return False
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Initialize the database on startup without ever crashing the process."""
+    await _init_database_on_startup()
     yield
-    await engine.dispose()
+    # Dispose the engine if one was created.
+    try:
+        engine = get_engine()
+        await engine.dispose()
+    except Exception:  # noqa: BLE001
+        pass
 
 
 app = FastAPI(

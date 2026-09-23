@@ -9,7 +9,10 @@ services:
     name: landed-cost-engine
     runtime: python
     plan: free
-    buildCommand: pip install --upgrade pip && pip install -r requirements.txt && python -m app.init_db
+    # init_db is intentionally NOT run at build time: the database network may
+    # not be reachable during build. Table creation + idempotent seeding happen
+    # in the app startup lifespan (app/main.py), which runs when the DB is ready.
+    buildCommand: pip install --upgrade pip && pip install -r requirements.txt
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
     envVars:
       - key: DATABASE_URL
