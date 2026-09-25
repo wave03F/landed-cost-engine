@@ -1,17 +1,13 @@
 <svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <!-- Cream field -->
-  <rect width="64" height="64" fill="#EDE8DC"/>
-  <!-- Deep navy seal -->
-  <circle cx="32" cy="32" r="24" fill="#0A1633"/>
-  <!-- Institution / customs building mark, white -->
+  <!-- Institution / customs building mark on transparent background -->
   <g fill="#FFFFFF">
     <!-- Roof / pediment -->
-    <path d="M32 20 L44 27 L20 27 Z"/>
+    <path d="M32 12 L52 24 L12 24 Z"/>
     <!-- Columns -->
-    <rect x="23" y="30" width="3.5" height="10"/>
-    <rect x="30.25" y="30" width="3.5" height="10"/>
-    <rect x="37.5" y="30" width="3.5" height="10"/>
+    <rect x="18" y="29" width="6" height="17"/>
+    <rect x="29" y="29" width="6" height="17"/>
+    <rect x="40" y="29" width="6" height="17"/>
   </g>
   <!-- Blue base underline -->
-  <rect x="21" y="42" width="22" height="3" rx="1.5" fill="#3B82F6"/>
+  <rect x="14" y="49" width="36" height="5" rx="2" fill="#3B82F6"/>
 </svg>
