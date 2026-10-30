@@ -16,7 +16,7 @@ function AuthSuccessContent() {
     if (accessToken && refreshToken) {
       // Store tokens + fetch user (remember me via localStorage)
       login(accessToken, refreshToken);
-      router.replace("/");
+      router.replace("/calculator");
     } else {
       router.replace("/login");
     }

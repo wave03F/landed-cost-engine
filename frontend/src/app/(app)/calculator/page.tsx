@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import type { CalculationRequest, CalculationResult } from "@/lib/types";
 import { calculateLandedCost, ApiRequestError } from "@/lib/api";
 import { FloatingTotal } from "@/components/calculator/floating-total";
@@ -10,8 +11,9 @@ import { useI18n } from "@/lib/i18n";
 import { exportCalculationPDF } from "@/lib/export-pdf";
 import { exportCalculationPrintTH } from "@/lib/export-print-th";
 
-export default function CalculatorPage() {
+function CalculatorPageContent() {
   const { t } = useI18n();
+  const searchParams = useSearchParams();
   const [quickEstimate, setQuickEstimate] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -25,6 +27,15 @@ export default function CalculatorPage() {
     insurance_usd: "",
     origin_country: "CN",
   });
+
+  // Pre-fill the HTS code when arriving from the HTS browser
+  // (e.g. /calculator?hts=8483.40).
+  useEffect(() => {
+    const hts = searchParams.get("hts");
+    if (hts) {
+      setFormData((prev) => ({ ...prev, hts_code: hts }));
+    }
+  }, [searchParams]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     setFormData((prev) => ({ ...prev, [e.target.name]: e.target.value }));
@@ -452,5 +463,13 @@ export default function CalculatorPage() {
       </div>
       </div>
     </>
+  );
+}
+
+export default function CalculatorPage() {
+  return (
+    <Suspense fallback={null}>
+      <CalculatorPageContent />
+    </Suspense>
   );
 }

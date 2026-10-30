@@ -69,7 +69,7 @@ export default function HTSCodesPage() {
 
   const handleUseInCalculator = () => {
     if (selectedCode) {
-      router.push(`/?hts=${selectedCode.code}`);
+      router.push(`/calculator?hts=${selectedCode.code}`);
     }
   };
 

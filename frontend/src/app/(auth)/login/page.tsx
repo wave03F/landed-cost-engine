@@ -13,7 +13,7 @@ export default function LoginPage() {
 
   useEffect(() => {
     if (!isLoading && isLoggedIn) {
-      router.replace("/");
+      router.replace("/calculator");
     }
   }, [isLoggedIn, isLoading, router]);
 
