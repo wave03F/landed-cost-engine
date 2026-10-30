@@ -11,6 +11,8 @@ Flow:
 
 from datetime import datetime
 
+import asyncio
+
 import httpx
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,6 +20,55 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import get_settings
 from app.models.user import User
 from app.services.token_service import create_access_token, create_refresh_token
+
+
+# Network resilience settings for outbound OAuth calls.
+# Render free-tier cold starts can briefly fail DNS resolution, so we retry
+# transient connection/DNS errors with exponential backoff instead of failing
+# the whole login on the first hiccup.
+_HTTP_TIMEOUT = httpx.Timeout(10.0, connect=10.0)
+_MAX_RETRIES = 3
+_BACKOFF_BASE_SECONDS = 0.5
+
+# Errors that are worth retrying: DNS resolution failures, connection errors,
+# and timeouts. These are transient on cold-start infrastructure.
+_RETRYABLE_EXCEPTIONS = (
+    httpx.ConnectError,
+    httpx.ConnectTimeout,
+    httpx.ReadTimeout,
+    httpx.WriteTimeout,
+    httpx.PoolTimeout,
+)
+
+
+class OAuthError(Exception):
+    """Raised when the OAuth flow fails for a reason we can describe to the user."""
+
+
+async def _request_with_retry(
+    client: httpx.AsyncClient,
+    method: str,
+    url: str,
+    **kwargs,
+) -> httpx.Response:
+    """Perform an HTTP request, retrying transient network/DNS failures.
+
+    Raises OAuthError with a readable message if all attempts fail.
+    """
+    last_exc: Exception | None = None
+    for attempt in range(_MAX_RETRIES):
+        try:
+            return await client.request(method, url, **kwargs)
+        except _RETRYABLE_EXCEPTIONS as exc:
+            last_exc = exc
+            if attempt < _MAX_RETRIES - 1:
+                await asyncio.sleep(_BACKOFF_BASE_SECONDS * (2**attempt))
+
+    raise OAuthError(
+        f"Could not reach the OAuth provider ({url.split('/')[2]}). "
+        f"This is usually a temporary network issue — please try again. "
+        f"[{type(last_exc).__name__}]"
+    )
 
 
 class OAuthService:
@@ -47,8 +98,10 @@ class OAuthService:
     async def handle_google_callback(self, code: str, redirect_uri: str) -> dict:
         """Exchange Google code for tokens, fetch user info, create/update user."""
         # Exchange code for token
-        async with httpx.AsyncClient() as client:
-            token_resp = await client.post(
+        async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT) as client:
+            token_resp = await _request_with_retry(
+                client,
+                "POST",
                 "https://oauth2.googleapis.com/token",
                 data={
                     "code": code,
@@ -61,10 +114,12 @@ class OAuthService:
             token_data = token_resp.json()
 
             if "access_token" not in token_data:
-                raise ValueError(f"Google token exchange failed: {token_data}")
+                raise OAuthError(f"Google token exchange failed: {token_data}")
 
             # Fetch user info
-            user_resp = await client.get(
+            user_resp = await _request_with_retry(
+                client,
+                "GET",
                 "https://www.googleapis.com/oauth2/v2/userinfo",
                 headers={"Authorization": f"Bearer {token_data['access_token']}"},
             )
@@ -111,9 +166,11 @@ class OAuthService:
 
     async def handle_github_callback(self, code: str, redirect_uri: str) -> dict:
         """Exchange GitHub code for tokens, fetch user info, create/update user."""
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT) as client:
             # Exchange code for token
-            token_resp = await client.post(
+            token_resp = await _request_with_retry(
+                client,
+                "POST",
                 "https://github.com/login/oauth/access_token",
                 data={
                     "code": code,
@@ -126,10 +183,12 @@ class OAuthService:
             token_data = token_resp.json()
 
             if "access_token" not in token_data:
-                raise ValueError(f"GitHub token exchange failed: {token_data}")
+                raise OAuthError(f"GitHub token exchange failed: {token_data}")
 
             # Fetch user info
-            user_resp = await client.get(
+            user_resp = await _request_with_retry(
+                client,
+                "GET",
                 "https://api.github.com/user",
                 headers={"Authorization": f"Bearer {token_data['access_token']}"},
             )
@@ -138,7 +197,9 @@ class OAuthService:
             # Fetch email (might be private)
             email = user_info.get("email")
             if not email:
-                email_resp = await client.get(
+                email_resp = await _request_with_retry(
+                    client,
+                    "GET",
                     "https://api.github.com/user/emails",
                     headers={"Authorization": f"Bearer {token_data['access_token']}"},
                 )

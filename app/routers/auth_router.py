@@ -11,16 +11,34 @@ Endpoints:
 - POST /auth/logout → (client-side: discard tokens)
 """
 
+from urllib.parse import urlencode
+
 from fastapi import APIRouter, Depends, HTTPException, Request, Query
 from fastapi.responses import RedirectResponse
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.services.oauth_service import OAuthService
+from app.services.oauth_service import OAuthService, OAuthError
 from app.services.token_service import verify_refresh_token, create_access_token, verify_access_token
 from app.config import get_settings
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
+
+
+def _frontend_base(settings) -> str:
+    """Resolve the frontend base URL for post-OAuth redirects."""
+    return settings.frontend_url or "http://localhost:3000"
+
+
+def _error_redirect(settings, provider: str, message: str) -> RedirectResponse:
+    """Redirect back to the frontend login page with a readable error message.
+
+    The frontend can read ?error=... and ?provider=... to show the user what
+    went wrong instead of a raw 400/JSON blob.
+    """
+    query = urlencode({"error": message, "provider": provider})
+    return RedirectResponse(url=f"{_frontend_base(settings)}/login?{query}")
 
 
 def _get_base_url(request: Request) -> str:
@@ -48,22 +66,43 @@ async def login_google(request: Request):
 
 @router.get("/callback/google", summary="Google OAuth callback")
 async def callback_google(
-    code: str = Query(...),
+    code: str | None = Query(None),
+    error: str | None = Query(None),
     request: Request = None,
     db: AsyncSession = Depends(get_db),
 ):
-    """Handle Google OAuth callback — exchange code, create user, return tokens."""
+    """Handle Google OAuth callback — exchange code, create user, return tokens.
+
+    On any failure (provider error, missing code, or network/DNS issue) we
+    redirect the user back to the frontend login page with a readable message
+    instead of surfacing a raw 400.
+    """
     settings = get_settings()
+
+    # Provider returned an error (e.g. user denied consent)
+    if error:
+        return _error_redirect(settings, "google", f"Google sign-in was cancelled or failed: {error}")
+
+    # Provider returned no authorization code
+    if not code:
+        return _error_redirect(
+            settings,
+            "google",
+            "Google did not return an authorization code. Please try signing in again.",
+        )
+
     redirect_uri = f"{settings.backend_url}/auth/callback/google"
 
     try:
         service = OAuthService(db)
         result = await service.handle_google_callback(code, redirect_uri)
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"OAuth failed: {type(e).__name__}: {str(e)}")
+    except OAuthError as e:
+        return _error_redirect(settings, "google", str(e))
+    except Exception as e:  # noqa: BLE001 — unknown failure, still return something usable
+        return _error_redirect(settings, "google", f"Unexpected error during Google sign-in: {type(e).__name__}")
 
     # Redirect to frontend with tokens
-    frontend_url = settings.frontend_url or "http://localhost:3000"
+    frontend_url = _frontend_base(settings)
     return RedirectResponse(
         url=f"{frontend_url}/auth/success?access_token={result['access_token']}&refresh_token={result['refresh_token']}"
     )
@@ -86,21 +125,35 @@ async def login_github(request: Request):
 
 @router.get("/callback/github", summary="GitHub OAuth callback")
 async def callback_github(
-    code: str = Query(...),
+    code: str | None = Query(None),
+    error: str | None = Query(None),
     request: Request = None,
     db: AsyncSession = Depends(get_db),
 ):
     """Handle GitHub OAuth callback — exchange code, create user, return tokens."""
     settings = get_settings()
+
+    if error:
+        return _error_redirect(settings, "github", f"GitHub sign-in was cancelled or failed: {error}")
+
+    if not code:
+        return _error_redirect(
+            settings,
+            "github",
+            "GitHub did not return an authorization code. Please try signing in again.",
+        )
+
     redirect_uri = f"{settings.backend_url}/auth/callback/github"
 
     try:
         service = OAuthService(db)
         result = await service.handle_github_callback(code, redirect_uri)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    except OAuthError as e:
+        return _error_redirect(settings, "github", str(e))
+    except Exception as e:  # noqa: BLE001
+        return _error_redirect(settings, "github", f"Unexpected error during GitHub sign-in: {type(e).__name__}")
 
-    frontend_url = settings.frontend_url or "http://localhost:3000"
+    frontend_url = _frontend_base(settings)
     return RedirectResponse(
         url=f"{frontend_url}/auth/success?access_token={result['access_token']}&refresh_token={result['refresh_token']}"
     )
@@ -110,10 +163,20 @@ async def callback_github(
 # Token Management
 # =============================================================================
 
+class RefreshRequest(BaseModel):
+    """Request body for the token refresh endpoint.
+
+    The frontend sends `{"refresh_token": "..."}` as JSON, so we accept a body
+    model rather than a query parameter.
+    """
+
+    refresh_token: str
+
+
 @router.post("/refresh", summary="Refresh access token")
-async def refresh_token(refresh_token: str, db: AsyncSession = Depends(get_db)):
+async def refresh_token(body: RefreshRequest, db: AsyncSession = Depends(get_db)):
     """Exchange a valid refresh token for a new access token."""
-    payload = verify_refresh_token(refresh_token)
+    payload = verify_refresh_token(body.refresh_token)
     if not payload:
         raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
 
