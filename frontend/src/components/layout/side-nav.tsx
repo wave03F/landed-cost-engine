@@ -58,8 +58,8 @@ export function SideNav() {
                   href={href}
                   className={
                     isActive
-                      ? "bg-secondary text-on-secondary font-bold p-3 flex items-center gap-3 rounded-sm scale-95 duration-100 shadow-[0_2px_4px_rgba(0,0,0,0.1)]"
-                      : "text-on-surface-variant hover:bg-surface-container-high p-3 flex items-center gap-3 transition-all rounded-sm"
+                      ? "bg-ink-navy text-brass font-bold p-3 flex items-center gap-3 rounded-lg border-l-2 border-brass duration-100 shadow-[0_2px_6px_rgba(0,0,0,0.12)]"
+                      : "text-on-surface-variant hover:bg-surface-container-high p-3 flex items-center gap-3 transition-all rounded-lg"
                   }
                 >
                   <span

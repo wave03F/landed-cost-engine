@@ -25,7 +25,7 @@ export function MobileNav() {
             href={href}
             className={`flex flex-col items-center gap-1 p-2 w-1/4 transition-colors group ${
               isActive
-                ? "text-secondary-fixed bg-primary rounded-sm"
+                ? "text-brass bg-ink-navy rounded-lg"
                 : "text-on-surface-variant hover:text-primary hover:bg-surface-container-high"
             }`}
           >
